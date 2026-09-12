@@ -44,6 +44,19 @@ try {
   // Not installed — Google Cloud STT mode will report a clear error when used.
 }
 
+// Optional dependency — only required for TRANSLATION_PROVIDER=google-adc.
+// Unlike TRANSLATION_PROVIDER=google (which needs a GOOGLE_TRANSLATE_API_KEY
+// string in .env), this authenticates via GOOGLE_APPLICATION_CREDENTIALS —
+// the SAME service-account JSON already used for Google Cloud STT — so no
+// separate API key needs to exist anywhere.
+let TranslateCtorV2 = null;
+try {
+  TranslateCtorV2 = require('@google-cloud/translate').v2.Translate;
+} catch (err) {
+  // Not installed — the 'google-adc' translation provider will report a
+  // clear error when used.
+}
+
 // ------------------------------------------------------------------
 // Config
 // ------------------------------------------------------------------
@@ -381,6 +394,41 @@ async function translateGoogle(text, target, source) {
   }
 }
 
+// ---- Google Cloud Translation via Application Default Credentials ----
+// Same auth story as the Google Cloud STT integration above: reads
+// GOOGLE_APPLICATION_CREDENTIALS automatically, no API key string needed
+// anywhere in .env. Requires the Cloud Translation API enabled on the same
+// GCP project, and the service account needs the "Cloud Translation API
+// User" role (a different role from "Cloud Speech Client", used for STT).
+let translateAdcClientSingleton = null;
+function getTranslateAdcClient() {
+  if (!TranslateCtorV2) {
+    throw new Error('The "@google-cloud/translate" package is not installed. Run: npm install @google-cloud/translate');
+  }
+  if (!translateAdcClientSingleton) {
+    translateAdcClientSingleton = new TranslateCtorV2({
+      projectId: CONFIG.googleCloudProjectId || undefined, // falls back to auto-detection from the credentials file
+    });
+  }
+  return translateAdcClientSingleton;
+}
+
+async function translateGoogleAdc(text, target, source) {
+  const client = getTranslateAdcClient();
+  try {
+    const [translated] = await client.translate(text, {
+      to: LANG_MAP_GOOGLE[target] || target,
+      from: source ? (LANG_MAP_GOOGLE[source] || source) : undefined,
+    });
+    if (!translated) throw new Error('Google Cloud Translation (ADC) returned no translation');
+    return translated;
+  } catch (err) {
+    // The client library throws GoogleError instances with a .message that
+    // already includes the gRPC/HTTP status detail — no extra unwrapping needed.
+    throw new Error(err.message || 'Google Cloud Translation (ADC) request failed');
+  }
+}
+
 async function translateDeepL(text, target, source) {
   if (!CONFIG.deeplApiKey) throw new Error('DEEPL_API_KEY not configured');
   try {
@@ -443,6 +491,7 @@ async function translateText(text, targetRaw, sourceRaw) {
 
   const attempts = [];
   if (provider === 'google') attempts.push(translateGoogle);
+  else if (provider === 'google-adc') attempts.push(translateGoogleAdc);
   else if (provider === 'deepl') attempts.push(translateDeepL);
   else attempts.push(translateLibre);
 

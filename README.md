@@ -115,15 +115,23 @@ GOOGLE_CLOUD_STT_REGION=us-central1
   is applied to the whole recognized segment. Google Cloud STT mode and AssemblyAI/Whisper
   both support word-level timestamps server-side (`words` field on the STT payload) if you
   want granular per-word masking instead.
-- LibreTranslate's free public instance is rate-limited; self-host it or use Google/DeepL keys
-  for production reliability.
-- **LibreTranslate has no Khmer model at all** (not a rate-limit or config issue — Argos
-  Translate simply doesn't ship one), so any `km` target request against it fails with a
-  400. If your workflow targets Khmer, set `TRANSLATION_PROVIDER=google` and provide
-  `GOOGLE_TRANSLATE_API_KEY`. Libre is fine for en/zh/fr/ar/ru/es.
+- **LibreTranslate's public instance now requires an API key for every request** (get one at
+  https://portal.libretranslate.com), even for languages it fully supports — this is a policy
+  change on their hosted service, not a config issue on this project's side. Self-host
+  LibreTranslate to avoid needing a key, or use a different provider (see below).
+- **LibreTranslate has no Khmer model at all** (separately from the API-key requirement above —
+  Argos Translate simply doesn't ship one), so any `km` target request against it fails
+  regardless of whether a valid key is provided. Libre is fine for en/zh/fr/ar/ru/es (with a key).
+- **If you don't want any API key string sitting in `.env`:** set
+  `TRANSLATION_PROVIDER=google-adc`. This authenticates via `GOOGLE_APPLICATION_CREDENTIALS` —
+  the same `google-key.json` service account already used for Google Cloud STT — instead of a
+  separate `GOOGLE_TRANSLATE_API_KEY` string. Requires `npm install` (pulls in
+  `@google-cloud/translate`), the Cloud Translation API enabled on that same GCP project, and
+  the service account to have the **"Cloud Translation API User"** role (a different role from
+  "Cloud Speech Client", which only covers STT).
 - DeepL does not currently support Khmer or Thai as a target language; requests for those
-  targets fall back to English when DeepL is the selected provider — use Google or LibreTranslate
-  for Khmer/Thai.
-- `@google-cloud/speech` is loaded defensively — if it isn't installed or credentials aren't
-  configured, the rest of the app keeps working fine; only the Google Cloud STT mode toggle
-  will report a clear error when you try to use it.
+  targets fall back to English when DeepL is the selected provider.
+- `@google-cloud/speech` and `@google-cloud/translate` are both loaded defensively — if either
+  isn't installed or credentials aren't configured, the rest of the app keeps working fine;
+  only the Google Cloud STT mode toggle / `google-adc` translation provider will report a
+  clear error when you try to use it.
