@@ -110,6 +110,10 @@
             <input type="checkbox" id="liveOverlay1Toggle" checked class="accent-accent" />
             ⚡ Live Overlay 1 (push original as you speak)
           </label>
+          <label class="flex items-center gap-1.5 text-xs text-slate-400" title="Prevents Google's multi-language auto-detection from drifting to another language on long streams">
+            <input type="checkbox" id="lockLanguageToggle" checked class="accent-accent" />
+            🔒 Lock to Source Language (no auto-switch)
+          </label>
         </div>
         <p class="text-[10px] text-slate-500 mt-1">
           Google Cloud mode switches from the browser's Web Speech API to server-side streaming
@@ -117,7 +121,11 @@
           Overlay 1 always updates automatically once each sentence completes (~1s after you pause) —
           "Live Overlay 1" additionally pushes it continuously word-by-word while you're still
           speaking. Overlay 2 always waits for the complete sentence, since translating a
-          half-formed phrase isn't meaningful.
+          half-formed phrase isn't meaningful. "Lock to Source Language" restricts recognition to
+          only the Source Speech Language selected above — turn it off if you genuinely need
+          code-switching (e.g. Khmer mixed with English) within the same session; automatic
+          language detection can otherwise drift to the wrong language and get stuck there on
+          long streams.
         </p>
 
         <p class="text-[10px] text-slate-500 mt-2">
@@ -235,13 +243,26 @@
         <label class="text-[10px] text-slate-500">Input (name or number)</label>
         <input id="overlay1Input" type="text" class="w-full bg-slate-800 rounded px-2 py-1.5 text-xs mb-2 border border-slate-700" />
         <label class="text-[10px] text-slate-500">Title Field (SelectedName)</label>
-        <input id="overlay1SelectedName" type="text" class="w-full bg-slate-800 rounded px-2 py-1.5 text-xs mb-2 border border-slate-700" />
+        <div class="flex gap-1.5 mb-2">
+          <input id="overlay1SelectedName" type="text" class="flex-1 bg-slate-800 rounded px-2 py-1.5 text-xs border border-slate-700" />
+          <button id="testOverlay1Btn" type="button" class="px-2 py-1.5 rounded bg-slate-700 hover:bg-slate-600 text-[10px] shrink-0" title="Send a fixed test string directly to this Input/SelectedName, bypassing STT/translation — confirms whether the names above actually match something in vMix">Test</button>
+        </div>
 
         <h2 class="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-2 mt-4">Overlay 2 Target (Translated)</h2>
         <label class="text-[10px] text-slate-500">Input (name or number)</label>
         <input id="overlay2Input" type="text" class="w-full bg-slate-800 rounded px-2 py-1.5 text-xs mb-2 border border-slate-700" />
         <label class="text-[10px] text-slate-500">Title Field (SelectedName)</label>
-        <input id="overlay2SelectedName" type="text" class="w-full bg-slate-800 rounded px-2 py-1.5 text-xs mb-2 border border-slate-700" />
+        <div class="flex gap-1.5 mb-2">
+          <input id="overlay2SelectedName" type="text" class="flex-1 bg-slate-800 rounded px-2 py-1.5 text-xs border border-slate-700" />
+          <button id="testOverlay2Btn" type="button" class="px-2 py-1.5 rounded bg-slate-700 hover:bg-slate-600 text-[10px] shrink-0" title="Send a fixed test string directly to this Input/SelectedName, bypassing STT/translation — confirms whether the names above actually match something in vMix">Test</button>
+        </div>
+        <p class="text-[10px] text-slate-500 -mt-1 mb-2">
+          "Test" sends a fixed string straight to vMix, skipping STT/translation entirely — if it
+          doesn't appear on the actual vMix output/preview for that Input, the Input name or
+          Title Field name above doesn't match something real in your vMix production (vMix's API
+          returns success even when the name doesn't match anything, so this is the only reliable
+          way to confirm the mapping).
+        </p>
 
         <h2 class="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-2 mt-4">Quality Control</h2>
         <label class="text-[10px] text-slate-500">Min. Confidence (%)</label>

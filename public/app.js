@@ -133,7 +133,7 @@
     logStream: $('logStream'), clearLogBtn: $('clearLogBtn'),
     exportTxtBtn: $('exportTxtBtn'), exportSrtBtn: $('exportSrtBtn'),
     audioDeviceSelect: $('audioDeviceSelect'), micToggleBtn: $('micToggleBtn'), levelMeter: $('levelMeter'),
-    sourceLangSelect: $('sourceLangSelect'), sttModeBtn: $('sttModeBtn'), liveOverlay1Toggle: $('liveOverlay1Toggle'),
+    sourceLangSelect: $('sourceLangSelect'), sttModeBtn: $('sttModeBtn'), liveOverlay1Toggle: $('liveOverlay1Toggle'), lockLanguageToggle: $('lockLanguageToggle'),
     targetLangSelect: $('targetLangSelect'), targetLangGroup: $('targetLangGroup'),
     confidenceBadge: $('confidenceBadge'), countdownRing: $('countdownRing'), countdownNum: $('countdownNum'),
     activeOriginalInput: $('activeOriginalInput'), activeTranslatedInput: $('activeTranslatedInput'),
@@ -145,6 +145,7 @@
     forceClearBtn: $('forceClearBtn'),
     overlay1Input: $('overlay1Input'), overlay1SelectedName: $('overlay1SelectedName'),
     overlay2Input: $('overlay2Input'), overlay2SelectedName: $('overlay2SelectedName'),
+    testOverlay1Btn: $('testOverlay1Btn'), testOverlay2Btn: $('testOverlay2Btn'),
     minConfidenceInput: $('minConfidenceInput'), minConfidenceValue: $('minConfidenceValue'), profanityFilterToggle: $('profanityFilterToggle'),
     toastContainer: $('toastContainer'),
   };
@@ -374,7 +375,7 @@
         if (state.sttMode === 'google' && state.shouldBeListening) {
           const primaryLang = el.sourceLangSelect.value || 'en-US';
           const actualRate = state.googleAudioCtx ? state.googleAudioCtx.sampleRate : 16000;
-          wsSend({ type: 'start_google_stream', sourceLangs: [primaryLang], targetLang: el.targetLangSelect.value, sampleRateHertz: actualRate });
+          wsSend({ type: 'start_google_stream', sourceLangs: [primaryLang], targetLang: el.targetLangSelect.value, sampleRateHertz: actualRate, lockLanguage: el.lockLanguageToggle.checked });
           toast('Google Cloud stream refreshed (periodic reconnect).', 'info');
         }
         break;
@@ -982,7 +983,7 @@
     }
 
     const primaryLang = el.sourceLangSelect.value || 'en-US';
-    wsSend({ type: 'start_google_stream', sourceLangs: [primaryLang], targetLang: el.targetLangSelect.value, sampleRateHertz: state.googleAudioCtx.sampleRate });
+    wsSend({ type: 'start_google_stream', sourceLangs: [primaryLang], targetLang: el.targetLangSelect.value, sampleRateHertz: state.googleAudioCtx.sampleRate, lockLanguage: el.lockLanguageToggle.checked });
 
     state.shouldBeListening = true;
     state.listening = true;
@@ -1244,6 +1245,32 @@
       toast('Clear failed: ' + err.message, 'error');
     }
   });
+
+  // Sends a fixed test string directly, bypassing STT/translation entirely —
+  // if this doesn't visibly appear in vMix, the Input/SelectedName above
+  // don't match anything real (vMix's SetText API returns success even when
+  // the name doesn't match anything, so log/toast success alone can't tell
+  // you that — you have to actually look at vMix to confirm).
+  async function testOverlaySend(target) {
+    const isOverlay1 = target === 'overlay1';
+    const input = isOverlay1 ? el.overlay1Input.value : el.overlay2Input.value;
+    const selectedName = isOverlay1 ? el.overlay1SelectedName.value : el.overlay2SelectedName.value;
+    const value = `TEST — ${isOverlay1 ? 'Overlay 1' : 'Overlay 2'} OK (${new Date().toLocaleTimeString()})`;
+    try {
+      const resp = await fetch('/api/vmix/overlay', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target, value, input, selectedName }),
+      });
+      const data = await resp.json();
+      console.log(`Test send to ${target} (Input="${input}", SelectedName="${selectedName}"):`, data);
+      if (data.ok) toast(`Test sent to ${input || '(default)'} / ${selectedName || '(default)'} — check vMix now.`, 'success');
+      else toast(`Test send failed: ${data.error}`, 'error');
+    } catch (err) {
+      toast('Test send failed: ' + err.message, 'error');
+    }
+  }
+  el.testOverlay1Btn.addEventListener('click', () => testOverlaySend('overlay1'));
+  el.testOverlay2Btn.addEventListener('click', () => testOverlaySend('overlay2'));
 
   document.querySelectorAll('.overlay-btn').forEach((btn) => {
     btn.addEventListener('click', async () => {

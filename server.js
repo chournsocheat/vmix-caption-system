@@ -26,6 +26,30 @@ const { WebSocketServer, WebSocket } = require('ws');
 const axios = require('axios');
 const path = require('path');
 const crypto = require('crypto');
+const fs = require('fs');
+
+// Log exactly what credentials path (if any) the process actually resolved,
+// right at startup — this turns "which file is it really trying to read?"
+// from a guessing game (the underlying Google client libraries only surface
+// this deep inside an ENOENT error, sometimes showing a stale/placeholder
+// value if .env has a duplicate key or the file was never actually updated)
+// into something visible on every launch, before any request is made.
+if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+  const credPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  const resolved = path.resolve(process.cwd(), credPath);
+  if (fs.existsSync(resolved)) {
+    console.log(`[INFO] GOOGLE_APPLICATION_CREDENTIALS -> "${credPath}" (found at ${resolved})`);
+  } else {
+    console.warn(`[WARN] GOOGLE_APPLICATION_CREDENTIALS is set to "${credPath}" but no file exists there `
+      + `(resolved to ${resolved}, relative to cwd ${process.cwd()}). Google Cloud STT and the `
+      + `"google-adc" translation provider will fail until this points at a real file. `
+      + `Check for a duplicate/leftover GOOGLE_APPLICATION_CREDENTIALS line in .env — dotenv uses `
+      + `the LAST one if there are multiple.`);
+  }
+} else {
+  console.log('[INFO] GOOGLE_APPLICATION_CREDENTIALS is not set — Google Cloud STT / "google-adc" '
+    + 'translation will only work if gcloud CLI default credentials exist on this machine.');
+}
 
 // Optional dependency — only required if the "Google Cloud Auto Multi-Language"
 // STT mode is actually used. Loaded lazily/defensively so the rest of the app
@@ -123,6 +147,14 @@ const CONFIG = {
   // server tries to auto-detect it from GOOGLE_APPLICATION_CREDENTIALS via
   // the client library — set this explicitly if that detection fails.
   googleCloudProjectId: process.env.GOOGLE_CLOUD_PROJECT_ID || '',
+  // Chirp 2's own endpointing can wait a long time before marking a result
+  // final on continuous speech with few pauses (e.g. a formal speech being
+  // read aloud) — Overlay 2 (translation) only updates on a true final, so
+  // it can go stale for a minute or more otherwise. This forces a refresh
+  // using the current interim text if no real final has arrived within this
+  // window, without affecting Chirp 2's own stream — a genuine final still
+  // takes priority whenever it does arrive.
+  googleCloudSttForceFinalizeMs: parseInt(process.env.GOOGLE_CLOUD_STT_FORCE_FINALIZE_MS, 10) || 8000,
 };
 
 // ------------------------------------------------------------------
@@ -816,16 +848,18 @@ async function resolveGoogleCloudProjectId(client) {
 function stopGoogleStream(ws) {
   ws.googleStreamStarting = false;
   ws.pendingAudioChunks = [];
+  ws.pendingInterimStartTime = 0;
   if (ws.googleStream) {
     try { ws.googleStream.end(); } catch (err) { /* already ending/ended */ }
     ws.googleStream = null;
   }
 }
 
-async function startGoogleStream(ws, { primaryLang, targetLang, sampleRateHertz }) {
+async function startGoogleStream(ws, { primaryLang, targetLang, sampleRateHertz, lockLanguage }) {
   stopGoogleStream(ws); // never leave a previous stream running underneath a new one
   ws.googleStreamStarting = true;
   ws.pendingAudioChunks = [];
+  ws.pendingInterimStartTime = 0;
 
   let client, projectId;
   try {
@@ -838,7 +872,12 @@ async function startGoogleStream(ws, { primaryLang, targetLang, sampleRateHertz 
   }
 
   const primary = primaryLang || 'en-US';
-  const alternates = CONFIG.googleCloudSttAlternativeLangs.filter((l) => l !== primary).slice(0, 3);
+  // Multi-language auto-detection can "lock onto" the wrong language on long
+  // streams and stay stuck there (a known behavior of auto-language-ID ASR,
+  // not specific to this app) — when the operator knows the content is a
+  // single language, skip alternates entirely so it can never drift away
+  // from what was explicitly selected.
+  const alternates = lockLanguage ? [] : CONFIG.googleCloudSttAlternativeLangs.filter((l) => l !== primary).slice(0, 3);
   // V2 combines the primary and alternate languages into a single array —
   // simpler than V1's separate languageCode + alternativeLanguageCodes fields.
   const languageCodes = [primary, ...alternates];
@@ -895,6 +934,24 @@ async function startGoogleStream(ws, { primaryLang, targetLang, sampleRateHertz 
     }
   });
 
+  // Shared by both a genuine Chirp 2 final AND a forced-finalize below, so
+  // the dedupe/logging/broadcast behavior is identical either way.
+  async function commitSttResult(text, confidencePct) {
+    const signature = normalizeForDedupe(text) + '|' + normLang(targetLang);
+    const now = Date.now();
+    if (signature === ws.lastSttSignature && now - ws.lastSttTime < STT_DEDUPE_WINDOW_MS) return;
+    ws.lastSttSignature = signature;
+    ws.lastSttTime = now;
+
+    try {
+      const entry = await buildSttResultEntry({ text, confidence: confidencePct, targetLang });
+      pushLogEntry(entry);
+      broadcast({ type: 'stt_result', entry });
+    } catch (err) {
+      log('error', 'Google STT -> stt_result build failed', err);
+    }
+  }
+
   recognizeStream.on('data', async (data) => {
     const result = data.results && data.results[0];
     const alt = result && result.alternatives && result.alternatives[0];
@@ -904,26 +961,27 @@ async function startGoogleStream(ws, { primaryLang, targetLang, sampleRateHertz 
     const confidencePct = typeof alt.confidence === 'number' && alt.confidence > 0 ? Math.round(alt.confidence * 100) : 100;
 
     if (result.isFinal) {
-      // Chirp 2 does its own proper endpointing (unlike the client-side
-      // silence-buffering used for Web Speech mode), so its 'isFinal' really
-      // does mean a complete utterance — safe to treat directly as stt_final.
-      const signature = normalizeForDedupe(text) + '|' + normLang(targetLang);
-      const now = Date.now();
-      if (signature === ws.lastSttSignature && now - ws.lastSttTime < STT_DEDUPE_WINDOW_MS) return;
-      ws.lastSttSignature = signature;
-      ws.lastSttTime = now;
-
-      try {
-        const entry = await buildSttResultEntry({ text, confidence: confidencePct, targetLang });
-        pushLogEntry(entry);
-        broadcast({ type: 'stt_result', entry });
-      } catch (err) {
-        log('error', 'Google STT -> stt_result build failed', err);
-      }
+      // A real final always resets the forced-finalize window — no need to
+      // synthesize one right after Chirp 2 already gave us a proper boundary.
+      ws.pendingInterimStartTime = 0;
+      await commitSttResult(text, confidencePct);
     } else {
       // Lightweight live-preview broadcast, mirroring what Web Speech mode
       // gets for free from the browser's own interim events.
       broadcast({ type: 'stt_interim', text, confidence: confidencePct });
+
+      // Chirp 2's own endpointing can wait a long time before marking a
+      // result final on continuous speech with few pauses (e.g. a formal
+      // speech being read aloud) — without this, Overlay 2 (translation)
+      // could go stale for a minute or more, since it only updates on a
+      // true final. Force a refresh using the current interim text once
+      // this window elapses; a genuine final arriving sooner still wins
+      // (this path only fires when nothing has committed in a while).
+      if (!ws.pendingInterimStartTime) ws.pendingInterimStartTime = Date.now();
+      if (Date.now() - ws.pendingInterimStartTime > CONFIG.googleCloudSttForceFinalizeMs) {
+        ws.pendingInterimStartTime = Date.now(); // restart the window for the next forced segment
+        await commitSttResult(text, confidencePct);
+      }
     }
   });
 
@@ -1092,9 +1150,10 @@ wss.on('connection', (ws, req) => {
 
         // Switch this connection's audio pipeline to Google Cloud STT.
         case 'start_google_stream': {
-          const { sourceLangs, targetLang, sampleRateHertz } = msg;
+          const { sourceLangs, targetLang, sampleRateHertz, lockLanguage } = msg;
           const primaryLang = (Array.isArray(sourceLangs) && sourceLangs[0]) || 'en-US';
-          await startGoogleStream(ws, { primaryLang, targetLang, sampleRateHertz });
+          ws.lockLanguage = !!lockLanguage; // remembered so an auto-reconnect (see 'end' handler above) preserves it
+          await startGoogleStream(ws, { primaryLang, targetLang, sampleRateHertz, lockLanguage: ws.lockLanguage });
           break;
         }
 
