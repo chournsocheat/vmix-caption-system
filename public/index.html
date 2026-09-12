@@ -104,10 +104,21 @@
           </div>
         </div>
 
-        <div class="mt-2">
+        <div class="mt-2 flex items-center gap-3 flex-wrap">
           <button id="sttModeBtn" type="button" class="px-2.5 py-1 rounded text-xs border border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-300 transition">🌐 Google Cloud Auto Multi-Language</button>
-          <span class="text-[10px] text-slate-500 ml-2">Switches from the browser's Web Speech API to server-side Google Cloud Speech-to-Text, which can auto-detect mixed languages (e.g. Khmer + English) in one stream.</span>
+          <label class="flex items-center gap-1.5 text-xs text-slate-400">
+            <input type="checkbox" id="liveOverlay1Toggle" checked class="accent-accent" />
+            ⚡ Live Overlay 1 (push original as you speak)
+          </label>
         </div>
+        <p class="text-[10px] text-slate-500 mt-1">
+          Google Cloud mode switches from the browser's Web Speech API to server-side streaming
+          recognition, which can auto-detect mixed languages (e.g. Khmer + English) in one stream.
+          Overlay 1 always updates automatically once each sentence completes (~1s after you pause) —
+          "Live Overlay 1" additionally pushes it continuously word-by-word while you're still
+          speaking. Overlay 2 always waits for the complete sentence, since translating a
+          half-formed phrase isn't meaningful.
+        </p>
 
         <p class="text-[10px] text-slate-500 mt-2">
           🎚️ To caption vMix's own program audio (not just a mic), route vMix's audio output

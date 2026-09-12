@@ -59,7 +59,7 @@ const CONFIG = {
   overlay2Input: process.env.VMIX_OVERLAY2_INPUT || 'TranslatedCaption',
   overlay2SelectedName: process.env.VMIX_OVERLAY2_SELECTED_NAME || 'Caption.Text',
 
-  translationProvider: (process.env.TRANSLATION_PROVIDER || 'google').toLowerCase(),
+  translationProvider: (process.env.TRANSLATION_PROVIDER || 'libre').toLowerCase(),
   googleApiKey: process.env.GOOGLE_TRANSLATE_API_KEY || '',
   deeplApiKey: process.env.DEEPL_API_KEY || '',
   deeplApiUrl: process.env.DEEPL_API_URL || 'https://api-free.deepl.com/v2/translate',
@@ -768,6 +768,19 @@ function startGoogleStream(ws, { primaryLang, targetLang, sampleRateHertz }) {
     log('error', 'Google STT stream error', err.message);
     ws.send(JSON.stringify({ type: 'error', error: `Google Cloud Speech error: ${err.message}` }));
     stopGoogleStream(ws);
+  });
+
+  // Cloud Speech's streamingRecognize has a hard limit of roughly 305 seconds
+  // per stream — it ends on its own even with no error. Without this, a
+  // session running longer than that would silently stop captioning with no
+  // visible cause. Tell the client so it can transparently restart.
+  recognizeStream.on('end', () => {
+    if (ws.googleStream === recognizeStream) {
+      ws.googleStream = null;
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'google_stream_ended' }));
+      }
+    }
   });
 
   recognizeStream.on('data', async (data) => {

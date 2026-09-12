@@ -92,6 +92,11 @@
     lastSentTimeOverlay2: 0,
     sendDedupeWindowMs: 2000,
 
+    // Live Overlay 1 push (real-time original captioning, see maybeLivePushOverlay1)
+    lastLiveOverlay1Send: 0,
+    lastLiveOverlay1Text: '',
+    liveOverlay1ThrottleMs: 400,
+
     config: {
       minConfidence: 60,
       lowConfidenceAction: 'mask',
@@ -128,7 +133,7 @@
     logStream: $('logStream'), clearLogBtn: $('clearLogBtn'),
     exportTxtBtn: $('exportTxtBtn'), exportSrtBtn: $('exportSrtBtn'),
     audioDeviceSelect: $('audioDeviceSelect'), micToggleBtn: $('micToggleBtn'), levelMeter: $('levelMeter'),
-    sourceLangSelect: $('sourceLangSelect'), sttModeBtn: $('sttModeBtn'),
+    sourceLangSelect: $('sourceLangSelect'), sttModeBtn: $('sttModeBtn'), liveOverlay1Toggle: $('liveOverlay1Toggle'),
     targetLangSelect: $('targetLangSelect'), targetLangGroup: $('targetLangGroup'),
     confidenceBadge: $('confidenceBadge'), countdownRing: $('countdownRing'), countdownNum: $('countdownNum'),
     activeOriginalInput: $('activeOriginalInput'), activeTranslatedInput: $('activeTranslatedInput'),
@@ -358,7 +363,19 @@
         // recognition events.
         if (state.sttMode === 'google') {
           el.activeOriginalInput.value = msg.text;
+          maybeLivePushOverlay1(msg.text);
           if (typeof msg.confidence === 'number') updateConfidenceBadge(msg.confidence);
+        }
+        break;
+      case 'google_stream_ended':
+        // Cloud Speech's streamingRecognize has a hard ~305s limit and ends
+        // on its own even with no error — restart transparently so a long
+        // session doesn't silently stop captioning.
+        if (state.sttMode === 'google' && state.shouldBeListening) {
+          const primaryLang = el.sourceLangSelect.value || 'en-US';
+          const actualRate = state.googleAudioCtx ? state.googleAudioCtx.sampleRate : 16000;
+          wsSend({ type: 'start_google_stream', sourceLangs: [primaryLang], targetLang: el.targetLangSelect.value, sampleRateHertz: actualRate });
+          toast('Google Cloud stream refreshed (periodic reconnect).', 'info');
         }
         break;
       case 'onair_update':
@@ -386,7 +403,11 @@
         break;
       }
       case 'error':
+        // This was previously console.warn-only — any Google Cloud STT auth,
+        // config, or quota error was completely invisible in the UI, which
+        // looks exactly like "I turned it on and nothing happens." Surface it.
         console.warn('WS server error:', msg.error);
+        toast(msg.error, 'error');
         break;
       default:
         break;
@@ -547,6 +568,17 @@
     }
     if (typeof entry.confidence === 'number') updateConfidenceBadge(entry.confidence);
     if (!entry.filtered) return; // skipped due to low confidence + "skip" policy — nothing to auto-send
+
+    // Overlay 1 gets the authoritative (server-masked/censored) original text
+    // as soon as each sentence completes — a short delay (the ~1s silence
+    // wait, nothing more), independent of the Send-Both auto-send countdown
+    // below. That countdown exists to let the operator review/edit the
+    // *translation* before it airs; the original shouldn't be gated behind
+    // that same wait. This fires whether or not "Live Overlay 1" is on: in
+    // live mode it's a final confirmation of what was already streaming in
+    // word-by-word; with live mode off, this IS how Overlay 1 gets updated.
+    pushOverlay1Immediate(entry.filtered);
+
     state.autoSendArmed = true;
     startAutoSendTimer();
   }
@@ -711,6 +743,61 @@
   function updateOriginalPreview() {
     const combined = [state.sentenceBuffer, state.interimText].filter(Boolean).join(' ');
     el.activeOriginalInput.value = combined;
+    maybeLivePushOverlay1(combined);
+  }
+
+  // ------------------------------------------------------------------
+  // Live Overlay 1 push — pushes the ORIGINAL text to vMix continuously as
+  // it's recognized (true real-time captioning), independent of the
+  // silence-based sentence buffering used for translation/Overlay 2. This
+  // is opt-in via the "⚡ Live Overlay 1" checkbox: Overlay 1 updates on
+  // every recognized word, while Overlay 2 (translation) still only updates
+  // once a full sentence is ready — translating a half-formed sentence
+  // isn't meaningful, but showing the original as it's spoken is exactly
+  // what live captioning should look like.
+  // ------------------------------------------------------------------
+  function maybeLivePushOverlay1(text) {
+    if (!el.liveOverlay1Toggle.checked) return;
+    const trimmed = (text || '').trim();
+    if (!trimmed || trimmed === state.lastLiveOverlay1Text) return;
+    const now = Date.now();
+    if (now - state.lastLiveOverlay1Send < state.liveOverlay1ThrottleMs) return;
+    state.lastLiveOverlay1Send = now;
+    state.lastLiveOverlay1Text = trimmed;
+
+    const targets = currentOverlayTargets();
+    wsSend({
+      type: 'send_overlay', requestId: crypto.randomUUID(), target: 'overlay1',
+      value: trimmed, input: targets.overlay1Input, selectedName: targets.overlay1SelectedName,
+      language: el.targetLangSelect.value,
+    });
+  }
+
+  // Pushes the finalized/authoritative original text to Overlay 1 once per
+  // completed sentence — shares the same dedupe state as sendToOverlay so a
+  // manual "Send Overlay 1"/"Send Both" click right after this won't
+  // needlessly re-send byte-for-byte identical content.
+  function pushOverlay1Immediate(text) {
+    const trimmed = (text || '').trim();
+    if (!trimmed) return;
+    const signature = normalizeForDedupe(trimmed);
+    const now = Date.now();
+    if (signature === state.lastSentSignatureOverlay1 && now - state.lastSentTimeOverlay1 < state.sendDedupeWindowMs) {
+      return;
+    }
+    state.lastSentSignatureOverlay1 = signature;
+    state.lastSentTimeOverlay1 = now;
+
+    const targets = currentOverlayTargets();
+    const requestId = crypto.randomUUID();
+    const payload = { target: 'overlay1', value: trimmed, input: targets.overlay1Input, selectedName: targets.overlay1SelectedName, language: el.targetLangSelect.value };
+    const sent = wsSend({ type: 'send_overlay', requestId, ...payload });
+    if (!sent) {
+      fetch('/api/vmix/overlay', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+        .then((r) => r.json())
+        .then((data) => { if (!data.ok) toast(`Overlay 1 send failed: ${data.error}`, 'error'); })
+        .catch((err) => toast('Overlay 1 send failed: ' + err.message, 'error'));
+    }
   }
 
   function appendToSentenceBuffer(text, confidencePct) {
@@ -862,10 +949,21 @@
       const constraints = { audio: deviceId ? { deviceId: { exact: deviceId } } : true };
       state.micStream = await navigator.mediaDevices.getUserMedia(constraints);
 
-      // A separate 16kHz AudioContext specifically for PCM capture — the
-      // existing level-meter AudioContext (started below) stays at the
-      // device's native rate for visualization, so the two don't conflict.
+      // A separate AudioContext specifically for PCM capture — the existing
+      // level-meter AudioContext (started below) stays at the device's
+      // native rate for visualization, so the two don't conflict.
+      // IMPORTANT: we *request* 16000Hz, but browsers/OS audio drivers don't
+      // always honor that — some silently keep the hardware's native rate
+      // (commonly 48000Hz) instead. If we then told Google "this is 16kHz"
+      // while it's actually 48kHz, the audio is undecodable and Google STT
+      // returns nothing at all — no error, just silence, which looks exactly
+      // like "I turned it on and nothing happens." So we read back the
+      // context's ACTUAL sampleRate after creation and tell the server that.
       state.googleAudioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+      const actualSampleRate = state.googleAudioCtx.sampleRate;
+      if (actualSampleRate !== 16000) {
+        toast(`Mic is running at ${actualSampleRate}Hz instead of the requested 16000Hz — using the actual rate so Google STT decodes correctly.`, 'info');
+      }
       await state.googleAudioCtx.audioWorklet.addModule('/pcm-worklet-processor.js');
       const source = state.googleAudioCtx.createMediaStreamSource(state.micStream);
       state.googleWorkletNode = new AudioWorkletNode(state.googleAudioCtx, 'pcm-capture-processor');
@@ -884,7 +982,7 @@
     }
 
     const primaryLang = el.sourceLangSelect.value || 'en-US';
-    wsSend({ type: 'start_google_stream', sourceLangs: [primaryLang], targetLang: el.targetLangSelect.value, sampleRateHertz: 16000 });
+    wsSend({ type: 'start_google_stream', sourceLangs: [primaryLang], targetLang: el.targetLangSelect.value, sampleRateHertz: state.googleAudioCtx.sampleRate });
 
     state.shouldBeListening = true;
     state.listening = true;
