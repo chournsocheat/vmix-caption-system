@@ -65,20 +65,49 @@ Speech API to server-side Google Cloud Speech-to-Text streaming, which can auto-
 code-switching (e.g. Khmer mixed with English) within a single stream — something the Web
 Speech API cannot do (it only accepts one fixed language at a time).
 
+This uses the **Speech-to-Text V2 API's Chirp 2 model** specifically — not V1. Per Google's
+own supported-languages table, Khmer (`km-KH`) streaming recognition is **not available
+under any V1 model** (`default`, `latest_long`, `latest_short`, `command_and_search`); it's
+only available via V2's `chirp`/`chirp_2` models, and only in certain regions. Using an
+unsupported language+model combo doesn't always fail with a clean error — it can silently
+produce garbled, English-leaning nonsense instead of real transcription, which is why this
+matters even if you don't hit an obvious error.
+
 Setup:
 1. In Google Cloud Console, enable the **Cloud Speech-to-Text API**, create a service account
    with the "Cloud Speech Client" role, and download its JSON key.
 2. `npm install` (this pulls in `@google-cloud/speech`).
 3. Set `GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json` in `.env`.
-4. Set `GOOGLE_CLOUD_STT_ALTERNATIVE_LANGS` to the mix of languages you expect (default
+4. Set `GOOGLE_CLOUD_PROJECT_ID` if auto-detection from the credentials file doesn't work
+   (needed to build the V2 API's `recognizer` resource path).
+5. Set `GOOGLE_CLOUD_STT_ALTERNATIVE_LANGS` to the mix of languages you expect (default
    `km-KH,en-US`) — the Source Speech Language dropdown's value becomes the primary
-   `languageCode`; up to 3 others from this list are sent as `alternativeLanguageCodes`.
+   language; up to 3 others from this list are combined with it into one `languageCodes` list.
+6. Leave `GOOGLE_CLOUD_STT_MODEL=chirp_2` and `GOOGLE_CLOUD_STT_REGION=asia-southeast1`
+   (defaults) unless you hit a region/model error — see troubleshooting below.
 
 The browser captures 16-bit PCM audio via an AudioWorklet (`public/pcm-worklet-processor.js`)
-and streams it to the server as binary WebSocket frames; the server pipes it into Cloud
-Speech's `streamingRecognize` and broadcasts results the same way as Web Speech mode
-(`stt_result` once Google marks a result final, `stt_interim` for live preview text).
-Requires a recent Chrome/Edge (AudioWorklet support) and an active WebSocket connection.
+and streams it to the server as binary WebSocket frames; the server wraps each chunk as
+`{ audio: <bytes> }` and writes it into a V2 `streamingRecognize` call (the first message on
+that call carries the `recognizer` path + config, with no audio; every message after that
+carries audio, with no config — mixing the two is rejected by the API). Results broadcast
+the same way as Web Speech mode (`stt_result` once Chirp 2 marks a result final, `stt_interim`
+for live preview text). Requires a recent Chrome/Edge (AudioWorklet support) and an active
+WebSocket connection.
+
+**If Google Cloud mode transcribes garbled text, English-sounding words, or nonsense
+instead of your actual language:** this almost always means the model+language+region combo
+isn't actually supported — double-check your language at
+https://cloud.google.com/speech-to-text/docs/languages before assuming it's an audio problem.
+
+**If you get a clear error** (now surfaced as a toast, not just a silent failure) **mentioning
+the model, region, or "not found"/"permission denied":** Chirp 2 is documented GA in
+`us-central1` and `europe-west4`; `asia-southeast1` has appeared in Google's language tables
+for Khmer but may require project allowlisting. Try:
+```
+GOOGLE_CLOUD_STT_REGION=us-central1
+```
+
 
 ## Notes & limitations
 

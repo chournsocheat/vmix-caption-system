@@ -30,9 +30,16 @@ const crypto = require('crypto');
 // Optional dependency — only required if the "Google Cloud Auto Multi-Language"
 // STT mode is actually used. Loaded lazily/defensively so the rest of the app
 // keeps working even if the package or credentials aren't set up yet.
-let SpeechClientCtor = null;
+//
+// IMPORTANT: this uses the Speech-to-Text V2 API specifically (not V1). V1's
+// classic models (default/latest_long/latest_short/command_and_search) do
+// NOT support Khmer at all per Google's supported-languages table — Khmer
+// streaming recognition is only available via the V2 API's Chirp 2 model,
+// which requires a regional endpoint (asia-southeast1/us-central1/europe-west4)
+// and a "recognizer" resource path built from your GCP project ID.
+let SpeechClientCtorV2 = null;
 try {
-  SpeechClientCtor = require('@google-cloud/speech').SpeechClient;
+  SpeechClientCtorV2 = require('@google-cloud/speech').v2.SpeechClient;
 } catch (err) {
   // Not installed — Google Cloud STT mode will report a clear error when used.
 }
@@ -83,10 +90,26 @@ const CONFIG = {
   // ---- Google Cloud Speech-to-Text ("Google Cloud Auto Multi-Language" mode) ----
   // Auth is via GOOGLE_APPLICATION_CREDENTIALS (service-account JSON path),
   // read automatically by @google-cloud/speech — not stored here.
+  //
+  // Using the V2 API's Chirp 2 model specifically: per Google's own supported-
+  // languages table, Khmer (km-KH) streaming recognition is NOT available
+  // under any V1 model (default/latest_long/latest_short/command_and_search)
+  // — only under V2's chirp/chirp_2 models, and only in certain regions.
   googleCloudSttAlternativeLangs: (process.env.GOOGLE_CLOUD_STT_ALTERNATIVE_LANGS || 'km-KH,en-US')
     .split(',').map((s) => s.trim()).filter(Boolean),
   googleCloudSttSampleRate: parseInt(process.env.GOOGLE_CLOUD_STT_SAMPLE_RATE, 10) || 16000,
-  googleCloudSttModel: process.env.GOOGLE_CLOUD_STT_MODEL || 'latest_long',
+  // Chirp 2 supports StreamingRecognize (plain "chirp" does not — it's
+  // Recognize/BatchRecognize only). Documented GA regions are us-central1
+  // and europe-west4; asia-southeast1 has appeared in Google's language
+  // tables for Khmer but may require project allowlisting — if you get a
+  // "not found"/"permission denied"/"invalid argument" error mentioning the
+  // model or region, try GOOGLE_CLOUD_STT_REGION=us-central1 instead.
+  googleCloudSttModel: process.env.GOOGLE_CLOUD_STT_MODEL || 'chirp_2',
+  googleCloudSttRegion: process.env.GOOGLE_CLOUD_STT_REGION || 'asia-southeast1',
+  // Required for the V2 API's "recognizer" resource path. If unset, the
+  // server tries to auto-detect it from GOOGLE_APPLICATION_CREDENTIALS via
+  // the client library — set this explicitly if that detection fails.
+  googleCloudProjectId: process.env.GOOGLE_CLOUD_PROJECT_ID || '',
 };
 
 // ------------------------------------------------------------------
@@ -706,66 +729,106 @@ async function sendBothOverlays({ original, translated, overlay1Input, overlay1S
 //
 // The client streams raw 16-bit LINEAR16 PCM audio over the WebSocket as
 // binary frames (captured via an AudioWorklet — see public/pcm-worklet-
-// processor.js). This server pipes those frames into a Cloud Speech
-// streamingRecognize call configured with a primary language plus several
-// alternativeLanguageCodes, so it can auto-detect code-switching between
-// e.g. Khmer and English within the same stream — something the browser's
-// own Web Speech API cannot do (it only accepts one fixed `lang`).
+// processor.js). This server pipes those frames into a V2 streamingRecognize
+// call using the Chirp 2 model with several languageCodes, so it can
+// auto-detect code-switching between e.g. Khmer and English within the same
+// stream — something the browser's own Web Speech API cannot do (it only
+// accepts one fixed `lang`), and something V1's classic models can't do for
+// Khmer at all (Khmer isn't in V1's supported-language list; it's only
+// available via V2's Chirp/Chirp 2 models).
 // ------------------------------------------------------------------
-let speechClientSingleton = null;
-function getSpeechClient() {
-  if (!SpeechClientCtor) {
+let speechClientV2Singleton = null;
+function getSpeechClientV2() {
+  if (!SpeechClientCtorV2) {
     throw new Error('The "@google-cloud/speech" package is not installed. Run: npm install @google-cloud/speech');
   }
-  if (!speechClientSingleton) {
-    speechClientSingleton = new SpeechClientCtor(); // reads GOOGLE_APPLICATION_CREDENTIALS automatically
+  if (!speechClientV2Singleton) {
+    // Chirp/Chirp 2 are region-specific — a regional apiEndpoint is required,
+    // the default global endpoint will not have these models.
+    speechClientV2Singleton = new SpeechClientCtorV2({
+      apiEndpoint: `${CONFIG.googleCloudSttRegion}-speech.googleapis.com`,
+    });
   }
-  return speechClientSingleton;
+  return speechClientV2Singleton;
+}
+
+async function resolveGoogleCloudProjectId(client) {
+  if (CONFIG.googleCloudProjectId) return CONFIG.googleCloudProjectId;
+  const result = await client.getProjectId();
+  // Different client-library versions resolve this as either a bare string
+  // or a [string] tuple — handle both.
+  const projectId = Array.isArray(result) ? result[0] : result;
+  if (!projectId) {
+    throw new Error('Could not auto-detect a GCP project ID from GOOGLE_APPLICATION_CREDENTIALS — set GOOGLE_CLOUD_PROJECT_ID explicitly in .env');
+  }
+  return projectId;
 }
 
 function stopGoogleStream(ws) {
+  ws.googleStreamStarting = false;
+  ws.pendingAudioChunks = [];
   if (ws.googleStream) {
     try { ws.googleStream.end(); } catch (err) { /* already ending/ended */ }
     ws.googleStream = null;
   }
 }
 
-function startGoogleStream(ws, { primaryLang, targetLang, sampleRateHertz }) {
+async function startGoogleStream(ws, { primaryLang, targetLang, sampleRateHertz }) {
   stopGoogleStream(ws); // never leave a previous stream running underneath a new one
+  ws.googleStreamStarting = true;
+  ws.pendingAudioChunks = [];
 
-  let client;
+  let client, projectId;
   try {
-    client = getSpeechClient();
+    client = getSpeechClientV2();
+    projectId = await resolveGoogleCloudProjectId(client);
   } catch (err) {
+    ws.googleStreamStarting = false;
     ws.send(JSON.stringify({ type: 'error', error: `Google Cloud Speech unavailable: ${err.message}` }));
     return;
   }
 
   const primary = primaryLang || 'en-US';
-  const alternativeLanguageCodes = CONFIG.googleCloudSttAlternativeLangs.filter((l) => l !== primary).slice(0, 3);
+  const alternates = CONFIG.googleCloudSttAlternativeLangs.filter((l) => l !== primary).slice(0, 3);
+  // V2 combines the primary and alternate languages into a single array —
+  // simpler than V1's separate languageCode + alternativeLanguageCodes fields.
+  const languageCodes = [primary, ...alternates];
 
-  const request = {
-    config: {
-      encoding: 'LINEAR16',
-      sampleRateHertz: sampleRateHertz || CONFIG.googleCloudSttSampleRate,
-      languageCode: primary,
-      alternativeLanguageCodes,
-      enableAutomaticPunctuation: true,
-      model: CONFIG.googleCloudSttModel,
+  // The "_" recognizer means "use this inline config, no pre-provisioned
+  // Recognizer resource needed" — nothing to set up in the GCP console first.
+  const recognizer = `projects/${projectId}/locations/${CONFIG.googleCloudSttRegion}/recognizers/_`;
+
+  const configRequest = {
+    recognizer,
+    streamingConfig: {
+      config: {
+        explicitDecodingConfig: {
+          encoding: 'LINEAR16',
+          sampleRateHertz: sampleRateHertz || CONFIG.googleCloudSttSampleRate,
+          audioChannelCount: 1,
+        },
+        languageCodes,
+        model: CONFIG.googleCloudSttModel,
+        features: { enableAutomaticPunctuation: true },
+      },
+      streamingFeatures: { interimResults: true },
     },
-    interimResults: true,
   };
 
   let recognizeStream;
   try {
-    recognizeStream = client.streamingRecognize(request);
+    recognizeStream = await client.streamingRecognize();
   } catch (err) {
-    ws.send(JSON.stringify({ type: 'error', error: `Could not start Google Cloud Speech stream: ${err.message}` }));
+    ws.googleStreamStarting = false;
+    ws.send(JSON.stringify({ type: 'error', error: `Could not start Google Cloud Speech (V2) stream: ${err.message}` }));
     return;
   }
 
   recognizeStream.on('error', (err) => {
-    log('error', 'Google STT stream error', err.message);
+    log('error', 'Google STT v2 stream error', err.message);
+    // Common causes surfaced here: wrong region for the model (try
+    // GOOGLE_CLOUD_STT_REGION=us-central1), the Speech-to-Text API not
+    // enabled, or the service account missing the Cloud Speech Client role.
     ws.send(JSON.stringify({ type: 'error', error: `Google Cloud Speech error: ${err.message}` }));
     stopGoogleStream(ws);
   });
@@ -792,7 +855,7 @@ function startGoogleStream(ws, { primaryLang, targetLang, sampleRateHertz }) {
     const confidencePct = typeof alt.confidence === 'number' && alt.confidence > 0 ? Math.round(alt.confidence * 100) : 100;
 
     if (result.isFinal) {
-      // Google STT does its own proper endpointing (unlike the client-side
+      // Chirp 2 does its own proper endpointing (unlike the client-side
       // silence-buffering used for Web Speech mode), so its 'isFinal' really
       // does mean a complete utterance — safe to treat directly as stt_final.
       const signature = normalizeForDedupe(text) + '|' + normLang(targetLang);
@@ -815,7 +878,22 @@ function startGoogleStream(ws, { primaryLang, targetLang, sampleRateHertz }) {
     }
   });
 
+  // The first message on a V2 streaming call must carry the recognizer +
+  // config and no audio; every message after that must carry audio and no
+  // config (mixing them is rejected by the API).
+  recognizeStream.write(configRequest);
+
   ws.googleStream = recognizeStream;
+  ws.googleStreamStarting = false;
+  // Flush any audio that arrived (as binary WS frames) while the stream was
+  // still being established above — nothing recorded during that brief
+  // window gets silently dropped.
+  if (ws.pendingAudioChunks.length) {
+    for (const chunk of ws.pendingAudioChunks) {
+      try { recognizeStream.write({ audio: chunk }); } catch (err) { /* stream may have just closed */ }
+    }
+    ws.pendingAudioChunks = [];
+  }
 }
 
 // ------------------------------------------------------------------
@@ -859,7 +937,16 @@ wss.on('connection', (ws, req) => {
     // straight to the stream instead of attempting to parse them.
     if (isBinary) {
       if (ws.googleStream) {
-        try { ws.googleStream.write(raw); } catch (err) { log('warn', 'Google STT stream write failed', err.message); }
+        // V2's streamingRecognize requires each audio message wrapped as
+        // { audio: <bytes> } — unlike V1, it does not accept a bare Buffer.
+        try { ws.googleStream.write({ audio: raw }); } catch (err) { log('warn', 'Google STT stream write failed', err.message); }
+      } else if (ws.googleStreamStarting) {
+        // The stream is still being established (awaiting project ID
+        // resolution / stream creation) — queue briefly so audio captured
+        // during that short window isn't silently dropped.
+        ws.pendingAudioChunks = ws.pendingAudioChunks || [];
+        ws.pendingAudioChunks.push(raw);
+        if (ws.pendingAudioChunks.length > 200) ws.pendingAudioChunks.shift(); // cap — avoid unbounded growth if setup stalls
       }
       return;
     }
@@ -958,7 +1045,7 @@ wss.on('connection', (ws, req) => {
         case 'start_google_stream': {
           const { sourceLangs, targetLang, sampleRateHertz } = msg;
           const primaryLang = (Array.isArray(sourceLangs) && sourceLangs[0]) || 'en-US';
-          startGoogleStream(ws, { primaryLang, targetLang, sampleRateHertz });
+          await startGoogleStream(ws, { primaryLang, targetLang, sampleRateHertz });
           break;
         }
 
