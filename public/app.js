@@ -97,6 +97,14 @@
     lastLiveOverlay1Text: '',
     liveOverlay1ThrottleMs: 400,
 
+    // Rolling ticker buffers — see appendToRolling()/maybeLivePushOverlay1().
+    // Accumulate continuously (never reset per-sentence) so the value sent
+    // to vMix keeps flowing rather than jumping to disjoint content each
+    // time; resetRollingBuffers() clears them on Clear/Stop/Start.
+    rollingOriginalText: '',
+    rollingTranslatedText: '',
+    rollingBufferMaxChars: 600,
+
     config: {
       minConfidence: 60,
       lowConfidenceAction: 'mask',
@@ -136,12 +144,12 @@
     sourceLangSelect: $('sourceLangSelect'), sttModeBtn: $('sttModeBtn'), liveOverlay1Toggle: $('liveOverlay1Toggle'), lockLanguageToggle: $('lockLanguageToggle'),
     targetLangSelect: $('targetLangSelect'), targetLangGroup: $('targetLangGroup'),
     confidenceBadge: $('confidenceBadge'), countdownRing: $('countdownRing'), countdownNum: $('countdownNum'),
-    activeOriginalInput: $('activeOriginalInput'), activeTranslatedInput: $('activeTranslatedInput'),
+    activeOriginalInput: $('activeOriginalInput'), activeTranslatedInput: $('activeTranslatedInput'), translatedBlock: $('translatedBlock'),
     sendOverlay1Btn: $('sendOverlay1Btn'), sendOverlay2Btn: $('sendOverlay2Btn'), sendBothBtn: $('sendBothBtn'),
     clearZoneBtn: $('clearZoneBtn'), cancelAutoBtn: $('cancelAutoBtn'), autoSendToggle: $('autoSendToggle'), autoSendDelayLabel: $('autoSendDelayLabel'),
     quickPhrases: $('quickPhrases'),
     onAirDot1: $('onAirDot1'), onAirText1: $('onAirText1'), onAirTimestamp1: $('onAirTimestamp1'),
-    onAirDot2: $('onAirDot2'), onAirText2: $('onAirText2'), onAirTimestamp2: $('onAirTimestamp2'),
+    onAirDot2: $('onAirDot2'), onAirText2: $('onAirText2'), onAirTimestamp2: $('onAirTimestamp2'), onAirOverlay2Card: $('onAirOverlay2Card'),
     forceClearBtn: $('forceClearBtn'),
     overlay1Input: $('overlay1Input'), overlay1SelectedName: $('overlay1SelectedName'),
     overlay2Input: $('overlay2Input'), overlay2SelectedName: $('overlay2SelectedName'),
@@ -230,8 +238,24 @@
     el.targetLangSelect.value = lang;
     document.querySelectorAll('.lang-btn').forEach((btn) => {
       const active = btn.dataset.lang === lang;
-      btn.className = `lang-btn px-2.5 py-1 rounded text-xs border border-slate-700 ${active ? 'bg-accent text-slate-900 font-medium' : 'bg-slate-800 hover:bg-slate-700'}`;
+      const isOffBtn = btn.dataset.lang === 'none';
+      btn.className = `lang-btn px-3 py-1 rounded-full text-xs border transition ${
+        active
+          ? (isOffBtn ? 'border-red-500 bg-red-500/90 text-white font-medium' : 'border-accent bg-accent text-slate-900 font-medium')
+          : 'border-slate-700 bg-slate-800 hover:bg-slate-700'
+      }`;
     });
+
+    // "None / Off" — no translation for incoming speech; Overlay 2 and its
+    // controls step out of the way so the operator's focus stays on
+    // Overlay 1 (original) only, per the button's purpose.
+    const isOff = lang === 'none';
+    el.translatedBlock.classList.toggle('hidden', isOff);
+    el.sendOverlay2Btn.classList.toggle('hidden', isOff);
+    el.onAirOverlay2Card.classList.toggle('hidden', isOff);
+    if (isOff) {
+      el.activeTranslatedInput.value = '';
+    }
   }
 
   document.querySelectorAll('.lang-btn').forEach((btn) => {
@@ -249,12 +273,12 @@
 
   function setWsStatus(status) {
     const map = {
-      connecting: { dot: 'bg-amber-400', label: 'Connecting…' },
-      open: { dot: 'bg-emerald-400', label: 'Connected' },
-      closed: { dot: 'bg-red-500', label: 'Disconnected — retrying…' },
+      connecting: { dot: 'bg-amber-400', glow: 'shadow-[0_0_8px_rgba(251,191,36,0.8)]', label: 'Connecting…' },
+      open: { dot: 'bg-emerald-400', glow: 'shadow-[0_0_8px_rgba(52,211,153,0.9)]', label: 'Connected' },
+      closed: { dot: 'bg-red-500', glow: 'shadow-[0_0_8px_rgba(239,68,68,0.9)]', label: 'Disconnected — retrying…' },
     };
     const s = map[status] || map.closed;
-    el.wsDot.className = `w-1.5 h-1.5 rounded-full ${s.dot}`;
+    el.wsDot.className = `w-1.5 h-1.5 rounded-full animate-pulse ${s.dot} ${s.glow}`;
     el.wsLabel.textContent = s.label;
   }
 
@@ -447,18 +471,21 @@
   function renderLogEntry(entry) {
     if (!entry) return;
     const div = document.createElement('div');
-    div.className = 'log-enter px-2 py-1.5 rounded bg-slate-800/60 border border-slate-800';
+    div.className = 'log-enter px-2.5 py-2 rounded-lg bg-slate-800/40 border border-slate-800/70 hover:bg-slate-800/70 hover:border-slate-700 transition-colors';
     const time = new Date(entry.timestamp).toLocaleTimeString();
     const conf = typeof entry.confidence === 'number' ? `${Math.round(entry.confidence)}%` : '—';
     const confColor = typeof entry.confidence === 'number' && entry.confidence < state.config.minConfidence ? 'text-red-400' : 'text-emerald-400';
     const statusLabel = entry.target ? `${entry.status || ''} · ${entry.target}` : (entry.status || '');
-    const bodyText = entry.translated ?? entry.filtered ?? entry.original ?? '';
+    // Use || not ?? here: entry.translated is deliberately '' in "None" mode,
+    // and ?? would NOT fall through on an empty string (only null/undefined),
+    // which is exactly what was suppressing the original text in the log.
+    const bodyText = entry.translated || entry.filtered || entry.original || '';
     div.innerHTML = `
-      <div class="flex items-center justify-between text-[10px] text-slate-500 mb-0.5">
-        <span>${time}${entry.targetLang ? ' · ' + entry.targetLang.toUpperCase() : ''}</span>
-        <span class="${confColor}">${conf}${statusLabel ? ' · ' + statusLabel : ''}</span>
+      <div class="flex items-center justify-between text-[10px] mb-1">
+        <span class="px-2 py-0.5 rounded-full bg-slate-900/70 text-slate-500 font-medium">${time}${entry.targetLang ? ' · ' + entry.targetLang.toUpperCase() : ''}</span>
+        <span class="${confColor} font-medium">${conf}${statusLabel ? ' · ' + statusLabel : ''}</span>
       </div>
-      <div class="text-slate-200 khmer break-words">${escapeHtml(bodyText)}</div>
+      <div class="text-slate-200 khmer break-words leading-snug">${escapeHtml(bodyText)}</div>
     `;
     el.logStream.appendChild(div);
     // Scroll only the log container's own scrollTop — #logStream is a bounded
@@ -744,7 +771,30 @@
   function updateOriginalPreview() {
     const combined = [state.sentenceBuffer, state.interimText].filter(Boolean).join(' ');
     el.activeOriginalInput.value = combined;
-    maybeLivePushOverlay1(combined);
+    maybeLivePushOverlay1();
+  }
+
+  // ------------------------------------------------------------------
+  // Rolling ticker buffers — instead of each push replacing the display with
+  // just the newest sentence (a hard cut), we keep accumulating recognized/
+  // translated text into a growing buffer and always send its LAST 2 lines
+  // (server-side windowing, see rollingCaptionWindow in server.js). Because
+  // each successive window overlaps heavily with the previous one, this
+  // produces a continuous scrolling-caption feel — the oldest line drops
+  // out of view one at a time as new text arrives, rather than the whole
+  // overlay jumping to entirely different content on every update.
+  // ------------------------------------------------------------------
+  function appendToRolling(key, text) {
+    if (!text) return;
+    const combined = (state[key] ? state[key] + ' ' : '') + text;
+    state[key] = combined.length > state.rollingBufferMaxChars
+      ? combined.slice(combined.length - state.rollingBufferMaxChars)
+      : combined;
+  }
+
+  function resetRollingBuffers() {
+    state.rollingOriginalText = '';
+    state.rollingTranslatedText = '';
   }
 
   // ------------------------------------------------------------------
@@ -756,32 +806,46 @@
   // once a full sentence is ready — translating a half-formed sentence
   // isn't meaningful, but showing the original as it's spoken is exactly
   // what live captioning should look like.
+  //
+  // The value sent is the rolling history PLUS whatever's still being
+  // spoken (not yet a finished sentence) — so the ticker keeps flowing
+  // smoothly through sentence boundaries instead of resetting each time.
   // ------------------------------------------------------------------
-  function maybeLivePushOverlay1(text) {
+  function maybeLivePushOverlay1(tentativeTail) {
     if (!el.liveOverlay1Toggle.checked) return;
-    const trimmed = (text || '').trim();
-    if (!trimmed || trimmed === state.lastLiveOverlay1Text) return;
+    // Web Speech mode passes nothing (uses its own sentence buffer + interim
+    // text); Google Cloud mode passes its interim transcript directly, since
+    // it doesn't use the client-side sentence buffer at all.
+    const tail = tentativeTail !== undefined ? tentativeTail : [state.sentenceBuffer, state.interimText].filter(Boolean).join(' ');
+    const combined = [state.rollingOriginalText, tail].filter(Boolean).join(' ').trim();
+    if (!combined || combined === state.lastLiveOverlay1Text) return;
     const now = Date.now();
     if (now - state.lastLiveOverlay1Send < state.liveOverlay1ThrottleMs) return;
     state.lastLiveOverlay1Send = now;
-    state.lastLiveOverlay1Text = trimmed;
+    state.lastLiveOverlay1Text = combined;
 
     const targets = currentOverlayTargets();
     wsSend({
       type: 'send_overlay', requestId: crypto.randomUUID(), target: 'overlay1',
-      value: trimmed, input: targets.overlay1Input, selectedName: targets.overlay1SelectedName,
+      value: combined, input: targets.overlay1Input, selectedName: targets.overlay1SelectedName,
       language: el.targetLangSelect.value,
     });
   }
 
   // Pushes the finalized/authoritative original text to Overlay 1 once per
-  // completed sentence — shares the same dedupe state as sendToOverlay so a
-  // manual "Send Overlay 1"/"Send Both" click right after this won't
-  // needlessly re-send byte-for-byte identical content.
+  // completed sentence — commits it into the rolling buffer first (this is
+  // the ONLY place a sentence permanently joins the ticker history; the live
+  // push above only ever shows rolling history + a tentative in-progress
+  // tail, never double-commits it). Shares the same dedupe state as
+  // sendToOverlay so a manual "Send Overlay 1"/"Send Both" click right after
+  // this won't needlessly re-send byte-for-byte identical content.
   function pushOverlay1Immediate(text) {
     const trimmed = (text || '').trim();
     if (!trimmed) return;
-    const signature = normalizeForDedupe(trimmed);
+    appendToRolling('rollingOriginalText', trimmed);
+    const rollingValue = state.rollingOriginalText;
+
+    const signature = normalizeForDedupe(rollingValue);
     const now = Date.now();
     if (signature === state.lastSentSignatureOverlay1 && now - state.lastSentTimeOverlay1 < state.sendDedupeWindowMs) {
       return;
@@ -791,7 +855,7 @@
 
     const targets = currentOverlayTargets();
     const requestId = crypto.randomUUID();
-    const payload = { target: 'overlay1', value: trimmed, input: targets.overlay1Input, selectedName: targets.overlay1SelectedName, language: el.targetLangSelect.value };
+    const payload = { target: 'overlay1', value: rollingValue, input: targets.overlay1Input, selectedName: targets.overlay1SelectedName, language: el.targetLangSelect.value };
     const sent = wsSend({ type: 'send_overlay', requestId, ...payload });
     if (!sent) {
       fetch('/api/vmix/overlay', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
@@ -1013,20 +1077,33 @@
     toast('Google Cloud streaming stopped.', 'info');
   }
 
-  function setSttMode(mode) {
-    if (state.listening || state.shouldBeListening) {
-      toast('Stop listening before switching STT mode.', 'warn');
-      return;
-    }
-    state.sttMode = mode;
+  function applySttModeStyles(mode) {
     const isGoogle = mode === 'google';
-    el.sttModeBtn.className = `px-2.5 py-1 rounded text-xs border transition ${isGoogle ? 'border-accent bg-accent text-slate-900 font-medium' : 'border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-300'}`;
-    el.sttModeBtn.textContent = isGoogle ? '🌐 Google Cloud Auto Multi-Language (ON)' : '🌐 Google Cloud Auto Multi-Language';
+    el.sttModeBtn.className = `px-2.5 py-1 rounded-full text-xs border transition ${isGoogle ? 'border-accent bg-accent text-slate-900 font-semibold shadow-[0_0_12px_rgba(34,211,238,0.35)]' : 'border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-slate-300'}`;
+    el.sttModeBtn.textContent = isGoogle ? '🌐 Google Cloud Auto Multi-Language · ON' : '🌐 Google Cloud Auto Multi-Language';
     // Web Speech mode reads rec.lang from this dropdown directly; Google mode
     // sends it as the primary languageCode (server adds configured alternates).
     el.sourceLangSelect.title = isGoogle
-      ? 'Primary language for Google Cloud STT (alternates are configured server-side)'
-      : 'Source language for the browser\'s Web Speech API';
+      ? 'Primary language for Google Cloud STT (alternates configured server-side)'
+      : "Source language for the browser's Web Speech API";
+  }
+
+  // Switching modes mid-session now hot-swaps instead of refusing: it stops
+  // whichever pipeline is currently running, flips the mode, and — if the
+  // operator was actively listening — restarts immediately in the new mode.
+  // The previous version just showed a warning toast and did nothing else,
+  // which is what made the toggle look broken when clicked while listening.
+  async function setSttMode(mode) {
+    if (state.sttMode === mode) return;
+    const wasListening = state.listening || state.shouldBeListening;
+    if (wasListening) {
+      state.sttMode === 'google' ? stopListeningGoogle() : stopListening();
+    }
+    state.sttMode = mode;
+    applySttModeStyles(mode);
+    if (wasListening) {
+      mode === 'google' ? await startListeningGoogle() : await startListening();
+    }
   }
 
   el.sttModeBtn.addEventListener('click', () => {
@@ -1102,6 +1179,20 @@
     };
   }
 
+  // Appends `value` into the rolling buffer only if it isn't already there —
+  // pushOverlay1Immediate() already commits each completed sentence the
+  // moment it arrives, so when the auto-send timer later fires for that same
+  // sentence, this avoids double-appending it. If the operator edited the
+  // box since then, the (different) edited text gets appended fresh.
+  function commitToRollingIfNew(key, value) {
+    const v = (value || '').trim();
+    if (!v) return state[key];
+    if (!state[key] || !state[key].endsWith(v)) {
+      appendToRolling(key, v);
+    }
+    return state[key];
+  }
+
   // Sends Overlay 1 (original) and Overlay 2 (translated) as ONE request, so
   // the server can fire both vMix SetText calls in the same Promise.all tick
   // — this is what actually keeps them synchronized. The previous approach
@@ -1113,18 +1204,25 @@
     const translatedValue = el.activeTranslatedInput.value.trim();
     if (!originalValue && !translatedValue) { toast('Nothing to send.', 'warn'); return; }
 
+    // Commit into the rolling buffers (see resetRollingBuffers/appendToRolling)
+    // — this is what's actually transmitted, so the vMix overlay keeps
+    // scrolling through accumulated history instead of jumping to just this
+    // one sentence in isolation.
+    const originalRolling = originalValue ? commitToRollingIfNew('rollingOriginalText', originalValue) : '';
+    const translatedRolling = translatedValue ? commitToRollingIfNew('rollingTranslatedText', translatedValue) : '';
+
     const now = Date.now();
-    const sig1 = normalizeForDedupe(originalValue);
-    const sig2 = normalizeForDedupe(translatedValue);
-    const dup1 = !originalValue || (sig1 === state.lastSentSignatureOverlay1 && now - state.lastSentTimeOverlay1 < state.sendDedupeWindowMs);
-    const dup2 = !translatedValue || (sig2 === state.lastSentSignatureOverlay2 && now - state.lastSentTimeOverlay2 < state.sendDedupeWindowMs);
+    const sig1 = normalizeForDedupe(originalRolling);
+    const sig2 = normalizeForDedupe(translatedRolling);
+    const dup1 = !originalRolling || (sig1 === state.lastSentSignatureOverlay1 && now - state.lastSentTimeOverlay1 < state.sendDedupeWindowMs);
+    const dup2 = !translatedRolling || (sig2 === state.lastSentSignatureOverlay2 && now - state.lastSentTimeOverlay2 < state.sendDedupeWindowMs);
     if (dup1 && dup2) return; // identical content already sent to both — ignore the repeat
-    if (originalValue) { state.lastSentSignatureOverlay1 = sig1; state.lastSentTimeOverlay1 = now; }
-    if (translatedValue) { state.lastSentSignatureOverlay2 = sig2; state.lastSentTimeOverlay2 = now; }
+    if (originalRolling) { state.lastSentSignatureOverlay1 = sig1; state.lastSentTimeOverlay1 = now; }
+    if (translatedRolling) { state.lastSentSignatureOverlay2 = sig2; state.lastSentTimeOverlay2 = now; }
 
     const payload = {
-      original: originalValue,
-      translated: translatedValue,
+      original: originalRolling,
+      translated: translatedRolling,
       ...currentOverlayTargets(),
       language: el.targetLangSelect.value,
     };
@@ -1170,9 +1268,15 @@
     const overlayLabel = isOverlay1 ? 'Overlay 1' : 'Overlay 2';
     if (!value) { toast(`Nothing to send to ${overlayLabel}.`, 'warn'); return; }
 
+    // Commit into the rolling buffer (see appendToRolling) — this, not the
+    // raw box value, is what's transmitted, so the overlay keeps scrolling
+    // through accumulated history instead of jumping to just this sentence.
+    const rollingKey = isOverlay1 ? 'rollingOriginalText' : 'rollingTranslatedText';
+    const rollingValue = commitToRollingIfNew(rollingKey, value);
+
     // Per-overlay dedupe: refuse to re-send byte-for-byte identical content
     // to the SAME overlay within a short cooldown, independent of trigger.
-    const signature = normalizeForDedupe(value);
+    const signature = normalizeForDedupe(rollingValue);
     const now = Date.now();
     const lastSig = isOverlay1 ? state.lastSentSignatureOverlay1 : state.lastSentSignatureOverlay2;
     const lastTime = isOverlay1 ? state.lastSentTimeOverlay1 : state.lastSentTimeOverlay2;
@@ -1188,12 +1292,12 @@
     const language = el.targetLangSelect.value;
 
     const requestId = crypto.randomUUID();
-    const sentOverWs = wsSend({ type: 'send_overlay', requestId, target, value, input, selectedName, language });
+    const sentOverWs = wsSend({ type: 'send_overlay', requestId, target, value: rollingValue, input, selectedName, language });
     if (!sentOverWs) {
       try {
         const resp = await fetch('/api/vmix/overlay', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ target, value, input, selectedName, language }),
+          body: JSON.stringify({ target, value: rollingValue, input, selectedName, language }),
         });
         const data = await resp.json();
         if (!data.ok) toast(`${overlayLabel} send failed: ${data.error}`, 'error');
@@ -1229,6 +1333,11 @@
     el.activeOriginalInput.value = '';
     el.activeTranslatedInput.value = '';
     resetConfidenceBadge();
+    // Explicit reset point for the rolling ticker buffers — the operator
+    // clicking Clear is the clearest signal that they want a fresh start,
+    // as opposed to an incidental stop/restart (e.g. switching STT mode)
+    // which should keep the ticker flowing rather than interrupting it.
+    resetRollingBuffers();
   });
 
   el.forceClearBtn.addEventListener('click', async () => {
@@ -1241,6 +1350,7 @@
       console.log('vMix clear result:', data); // useful when diagnosing "clear didn't seem to do anything"
       if (data.ok) toast('Cleared both overlays on vMix.', 'success');
       else toast('Clear failed on one or both overlays — see console.', 'error');
+      resetRollingBuffers(); // wiping vMix should also reset the ticker history, not just what's currently on screen
     } catch (err) {
       toast('Clear failed: ' + err.message, 'error');
     }
@@ -1305,12 +1415,15 @@
   function updateOnAirRow(dotEl, textEl, tsEl, data, label) {
     if (!data) return;
     textEl.textContent = data.text || '—';
+    // The box has a fixed height now (see index.html) — auto-scroll to the
+    // bottom so the latest text is always what's visible, not clipped below.
+    textEl.scrollTop = textEl.scrollHeight;
     if (data.timestamp) {
       tsEl.textContent = `Sent ${new Date(data.timestamp).toLocaleTimeString()}${data.source ? ' → ' + data.source : ''}`;
-      dotEl.className = 'w-2 h-2 rounded-full bg-onair onair-live';
+      dotEl.className = 'w-2.5 h-2.5 rounded-full bg-onair onair-live';
     } else {
       tsEl.textContent = 'Not sent yet';
-      dotEl.className = 'w-2 h-2 rounded-full bg-slate-700';
+      dotEl.className = 'w-2.5 h-2.5 rounded-full bg-slate-700';
     }
   }
 
@@ -1327,11 +1440,11 @@
     try {
       const resp = await fetch('/api/vmix/status');
       const data = await resp.json();
-      el.vmixDot.className = `w-1.5 h-1.5 rounded-full ${data.connected ? 'bg-emerald-400' : 'bg-red-500'}`;
+      el.vmixDot.className = `w-1.5 h-1.5 rounded-full animate-pulse ${data.connected ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)]' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.9)]'}`;
       el.vmixLabel.textContent = data.connected ? 'vMix: connected' : 'vMix: unreachable';
       el.vmixLabel.title = data.detail || '';
     } catch (err) {
-      el.vmixDot.className = 'w-1.5 h-1.5 rounded-full bg-red-500';
+      el.vmixDot.className = 'w-1.5 h-1.5 rounded-full animate-pulse bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.9)]';
       el.vmixLabel.textContent = 'vMix: error';
     }
   }
@@ -1433,7 +1546,7 @@
   async function init() {
     loadSettings();
     setTargetLang(el.targetLangSelect.value || 'km');
-    setSttMode('webspeech');
+    applySttModeStyles(state.sttMode);
     el.autoSendDelayLabel.textContent = state.settings.autoSendDelaySec;
     renderQuickPhrases();
     await loadConfig();

@@ -122,6 +122,10 @@ const CONFIG = {
 
   // ---- Caption line-wrapping (prevents subtitles overrunning the video) ----
   captionMaxCharsPerLine: parseInt(process.env.CAPTION_MAX_CHARS_PER_LINE, 10) || 78,
+  // The vMix-bound value is always wrapped and windowed to the LAST this-many
+  // lines (see rollingCaptionWindow) — older lines simply aren't sent again,
+  // which is what makes the client's continuously-growing rolling buffer
+  // look like a scrolling ticker instead of a repeated full-block swap.
   captionMaxLines: parseInt(process.env.CAPTION_MAX_LINES, 10) || 2,
 
   // ---- Google Cloud Speech-to-Text ("Google Cloud Auto Multi-Language" mode) ----
@@ -286,26 +290,22 @@ function wrapText(text, maxCharsPerLine) {
   return lines;
 }
 
-// Wraps text to at most `maxLines` lines of `maxCharsPerLine` characters,
-// truncating with an ellipsis if it still doesn't fit. This is applied only
-// to the value actually sent to vMix — the Log Stream / Edit Zone always
-// keep the full, untruncated text so the operator can see/edit everything.
-function formatCaptionForOverlay(text, maxCharsPerLine, maxLines) {
-  if (!text) return text;
+// Wraps text and keeps only the LAST `maxLines` lines — older lines are
+// simply not shown anymore, as if they'd already scrolled off. Combined with
+// a client-side buffer that keeps accumulating recognized/translated text
+// instead of resetting per sentence (see app.js's rolling buffers), sending
+// this window on every update is what produces a continuous ticker feel:
+// each new push overlaps heavily with the last one, so only the line that's
+// been on screen longest drops away as a new one appears at the bottom —
+// never a jarring full-block swap. The Log Stream / Edit Zone still always
+// show the full, untruncated per-sentence text regardless.
+function rollingCaptionWindow(text, maxCharsPerLine, maxLines) {
+  if (!text) return '';
   const perLine = maxCharsPerLine || CONFIG.captionMaxCharsPerLine;
   const lines = maxLines || CONFIG.captionMaxLines;
   const wrapped = wrapText(text.trim().replace(/\s+/g, ' '), perLine);
-  if (wrapped.length <= lines) return wrapped.join('\n');
-
-  const kept = wrapped.slice(0, lines);
-  const ELLIPSIS = '…';
-  let last = kept[lines - 1];
-  const budget = Math.max(0, perLine - ELLIPSIS.length);
-  if (last.length > budget) {
-    last = segmentGraphemes(last).slice(0, budget).join('');
-  }
-  kept[lines - 1] = last.trimEnd() + ELLIPSIS;
-  return kept.join('\n');
+  if (wrapped.length === 0) return '';
+  return wrapped.slice(-lines).join('\n');
 }
 
 // ------------------------------------------------------------------
@@ -517,6 +517,10 @@ async function translateText(text, targetRaw, sourceRaw) {
   const target = normLang(targetRaw);
   const source = sourceRaw ? normLang(sourceRaw) : null;
   if (target === source) return text;
+  // "none" is a per-request sentinel (the "None / Off" chip in the UI) — it
+  // means "this particular caption shouldn't be translated at all," distinct
+  // from TRANSLATION_PROVIDER=none which disables translation globally.
+  if (target === 'none' || !target) return text;
 
   const provider = CONFIG.translationProvider;
   if (provider === 'none') return text;
@@ -606,28 +610,10 @@ app.post('/api/vmix/overlay', async (req, res) => {
     const defaults = overlayDefaults(target);
     const finalInput = input || defaults.input;
     const finalSelectedName = selectedName || defaults.selectedName;
-    const finalValue = formatCaptionForOverlay(censorProfanity(value));
 
-    const result = await vmixSetText(finalInput, finalSelectedName, finalValue);
+    const result = await sendRollingOverlay(target, finalInput, finalSelectedName, value, language);
 
-    const entry = {
-      id: crypto.randomUUID(),
-      timestamp: Date.now(),
-      target,
-      translated: finalValue,
-      language: language || null,
-      status: result.ok ? 'sent' : 'send_failed',
-      error: result.ok ? null : result.error,
-    };
-    pushLogEntry(entry);
-    broadcast({ type: 'log_entry', entry });
-
-    if (result.ok) {
-      state.onAir[target] = { text: finalValue, language: language || null, timestamp: Date.now(), source: finalInput };
-      broadcast({ type: 'onair_update', onAir: state.onAir });
-    }
-
-    res.json({ ok: result.ok, error: result.error, entry });
+    res.json({ ok: result.ok, error: result.error });
   } catch (err) {
     log('error', 'overlay handler crashed', err);
     res.status(500).json({ ok: false, error: 'Internal server error' });
@@ -733,10 +719,15 @@ async function buildSttResultEntry(payload) {
   const { text, confidence, words, targetLang } = payload;
   const safeConfidence = typeof confidence === 'number' ? Math.max(0, Math.min(100, confidence)) : null;
   const filtered = censorProfanity(applyConfidenceFilter(text || '', safeConfidence ?? 100, words));
+  const normalizedTarget = normLang(targetLang);
 
-  let translated = filtered;
+  // "none" ("None / Off" chip in the UI) means translation is explicitly
+  // disabled for this caption — leave `translated` empty rather than
+  // duplicating the original, so Overlay 2 has nothing to send and the
+  // operator's focus stays on Overlay 1 as intended.
+  let translated = '';
   let translationError = null;
-  if (filtered) {
+  if (filtered && normalizedTarget && normalizedTarget !== 'none') {
     try {
       translated = censorProfanity(await translateText(filtered, targetLang, null));
     } catch (err) {
@@ -752,7 +743,7 @@ async function buildSttResultEntry(payload) {
     filtered,
     translated,
     confidence: safeConfidence,
-    targetLang: normLang(targetLang),
+    targetLang: normalizedTarget,
     isFinal: true,
     status: 'received',
     translationError,
@@ -766,11 +757,43 @@ function pushLogEntry(entry) {
   }
 }
 
-// Sends Overlay 1 (original) and Overlay 2 (translated) in a single
-// Promise.all — both HTTP calls to vMix leave the Node process in the same
-// tick, which is what actually keeps them synchronized. The previous
-// client-side "await overlay1 then await overlay2" approach serialized two
-// full network round trips and could visibly desync the two captions.
+// Sends `rawText` to one vMix overlay target as a rolling window: it's
+// wrapped and only the LAST captionMaxLines lines are kept (see
+// rollingCaptionWindow). The caller (app.js) is what actually makes this
+// look like a continuous ticker — it keeps accumulating recognized/
+// translated text into a growing buffer and calls this on every update
+// instead of resetting per sentence, so each successive window overlaps
+// heavily with the last and only the oldest line ever drops out of view.
+async function sendRollingOverlay(target, input, selectedName, rawText, language) {
+  const censored = censorProfanity(rawText || '');
+  const windowed = rollingCaptionWindow(censored, CONFIG.captionMaxCharsPerLine, CONFIG.captionMaxLines);
+
+  const result = await vmixSetText(input, selectedName, windowed);
+  const entry = {
+    id: crypto.randomUUID(),
+    timestamp: Date.now(),
+    target,
+    translated: windowed,
+    language: language || null,
+    status: result.ok ? 'sent' : 'send_failed',
+    error: result.ok ? null : result.error,
+  };
+  pushLogEntry(entry);
+  broadcast({ type: 'log_entry', entry });
+  if (result.ok) {
+    state.onAir[target] = { text: windowed, language: language || null, timestamp: Date.now(), source: input };
+    broadcast({ type: 'onair_update', onAir: state.onAir });
+  }
+  return result;
+}
+
+// Sends Overlay 1 (original) and Overlay 2 (translated) via a single
+// Promise.all so both HTTP calls to vMix leave the Node process in the same
+// tick, keeping them synchronized. Each is windowed to the last
+// captionMaxLines lines independently (see sendRollingOverlay) — the
+// previous client-side "await overlay1 then await overlay2" approach
+// serialized two full network round trips and could visibly desync the two
+// captions.
 async function sendBothOverlays({ original, translated, overlay1Input, overlay1SelectedName, overlay2Input, overlay2SelectedName, language }) {
   const d1 = overlayDefaults('overlay1');
   const d2 = overlayDefaults('overlay2');
@@ -778,29 +801,11 @@ async function sendBothOverlays({ original, translated, overlay1Input, overlay1S
   const finalSelectedName1 = overlay1SelectedName || d1.selectedName;
   const finalInput2 = overlay2Input || d2.input;
   const finalSelectedName2 = overlay2SelectedName || d2.selectedName;
-  const finalValue1 = formatCaptionForOverlay(censorProfanity(original || ''));
-  const finalValue2 = formatCaptionForOverlay(censorProfanity(translated || ''));
 
   const [result1, result2] = await Promise.all([
-    finalValue1 ? vmixSetText(finalInput1, finalSelectedName1, finalValue1) : Promise.resolve({ ok: true, skipped: true }),
-    finalValue2 ? vmixSetText(finalInput2, finalSelectedName2, finalValue2) : Promise.resolve({ ok: true, skipped: true }),
+    original ? sendRollingOverlay('overlay1', finalInput1, finalSelectedName1, original, language) : Promise.resolve({ ok: true, skipped: true }),
+    translated ? sendRollingOverlay('overlay2', finalInput2, finalSelectedName2, translated, language) : Promise.resolve({ ok: true, skipped: true }),
   ]);
-
-  const now = Date.now();
-  if (finalValue1) {
-    const entry1 = { id: crypto.randomUUID(), timestamp: now, target: 'overlay1', translated: finalValue1, language: language || null, status: result1.ok ? 'sent' : 'send_failed', error: result1.ok ? null : result1.error };
-    pushLogEntry(entry1);
-    broadcast({ type: 'log_entry', entry: entry1 });
-    if (result1.ok) state.onAir.overlay1 = { text: finalValue1, language: language || null, timestamp: now, source: finalInput1 };
-  }
-  if (finalValue2) {
-    const entry2 = { id: crypto.randomUUID(), timestamp: now, target: 'overlay2', translated: finalValue2, language: language || null, status: result2.ok ? 'sent' : 'send_failed', error: result2.ok ? null : result2.error };
-    pushLogEntry(entry2);
-    broadcast({ type: 'log_entry', entry: entry2 });
-    if (result2.ok) state.onAir.overlay2 = { text: finalValue2, language: language || null, timestamp: now, source: finalInput2 };
-  }
-  // One combined broadcast so both ON AIR rows update in the same render pass.
-  broadcast({ type: 'onair_update', onAir: state.onAir });
 
   return { ok: result1.ok && result2.ok, overlay1: result1, overlay2: result2 };
 }
@@ -1103,26 +1108,8 @@ wss.on('connection', (ws, req) => {
           const defaults = overlayDefaults(target);
           const finalInput = input || defaults.input;
           const finalSelectedName = selectedName || defaults.selectedName;
-          const finalValue = formatCaptionForOverlay(censorProfanity(value || ''));
 
-          const result = await vmixSetText(finalInput, finalSelectedName, finalValue);
-
-          const entry = {
-            id: crypto.randomUUID(),
-            timestamp: Date.now(),
-            target,
-            translated: finalValue,
-            language: language || null,
-            status: result.ok ? 'sent' : 'send_failed',
-            error: result.ok ? null : result.error,
-          };
-          pushLogEntry(entry);
-          broadcast({ type: 'log_entry', entry });
-
-          if (result.ok) {
-            state.onAir[target] = { text: finalValue, language: language || null, timestamp: Date.now(), source: finalInput };
-            broadcast({ type: 'onair_update', onAir: state.onAir });
-          }
+          const result = await sendRollingOverlay(target, finalInput, finalSelectedName, value, language);
 
           ws.send(JSON.stringify({ type: 'send_overlay_result', requestId, ok: result.ok, target, error: result.error }));
           break;

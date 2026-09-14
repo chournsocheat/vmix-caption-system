@@ -25,41 +25,62 @@
   };
 </script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+Khmer:wght@400;500;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+Khmer:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
-  body { background-color: #0a0b10; }
+  body {
+    background:
+      radial-gradient(ellipse 80% 60% at 15% 0%, rgba(99,102,241,0.07), transparent 60%),
+      radial-gradient(ellipse 70% 55% at 100% 15%, rgba(34,211,238,0.06), transparent 60%),
+      radial-gradient(ellipse 60% 50% at 100% 100%, rgba(16,185,129,0.05), transparent 60%),
+      #030712; /* slate-950 */
+  }
   ::-webkit-scrollbar { width: 8px; height: 8px; }
-  ::-webkit-scrollbar-track { background: #12141c; }
+  ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: #2a2f3d; border-radius: 4px; }
   .khmer { font-family: 'Noto Sans Khmer', system-ui, sans-serif; }
+  .glass-soft {
+    background: rgba(15,17,24,0.65);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(148,163,184,0.12);
+  }
   @keyframes pulse-red {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.6); }
-    50% { box-shadow: 0 0 0 8px rgba(239,68,68,0); }
+    0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.55); }
+    50% { box-shadow: 0 0 0 9px rgba(239,68,68,0); }
   }
   .onair-live { animation: pulse-red 1.6s infinite; }
   .log-enter { animation: fadeIn .25s ease-out; }
   @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
   .countdown-ring { transition: stroke-dashoffset 0.1s linear; }
+  .onair-box {
+    background: radial-gradient(120% 140% at 0% 0%, rgba(255,255,255,0.03), transparent 50%), #000;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.04);
+  }
+  /* Sleeker, thinner scrollbar for the fixed-height ON-AIR text boxes */
+  .onair-box::-webkit-scrollbar { width: 5px; }
+  .onair-box::-webkit-scrollbar-track { background: transparent; }
+  .onair-box::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.25); border-radius: 3px; }
+  .onair-box { scrollbar-width: thin; scrollbar-color: rgba(148,163,184,0.35) transparent; }
 </style>
 </head>
 <body class="text-slate-200 font-sans h-screen overflow-hidden flex flex-col">
 
   <!-- TOP BAR -->
-  <header class="flex items-center justify-between px-4 py-2 bg-panel border-b border-slate-800 shrink-0">
+  <header class="flex items-center justify-between px-5 py-2.5 bg-slate-900/60 backdrop-blur-md border-b border-slate-800/80 shrink-0">
     <div class="flex items-center gap-3">
-      <div class="w-2.5 h-2.5 rounded-full bg-accent"></div>
-      <h1 class="font-semibold text-sm tracking-wide text-slate-100">vMix Live Caption &amp; QC Console</h1>
+      <div class="w-2.5 h-2.5 rounded-full bg-accent shadow-[0_0_10px_rgba(34,211,238,0.8)]"></div>
+      <h1 class="font-bold text-sm tracking-wide text-slate-100">vMix Live Caption &amp; QC Console</h1>
     </div>
-    <div class="flex items-center gap-4 text-xs">
-      <div id="wsStatus" class="flex items-center gap-1.5 px-2 py-1 rounded bg-slate-800">
+    <div class="flex items-center gap-3 text-xs">
+      <div id="wsStatus" class="flex items-center gap-1.5 px-2.5 py-1 rounded-full glass-soft">
         <span class="w-1.5 h-1.5 rounded-full bg-slate-500" id="wsDot"></span>
         <span id="wsLabel">Connecting…</span>
       </div>
-      <div id="vmixStatus" class="flex items-center gap-1.5 px-2 py-1 rounded bg-slate-800">
+      <div id="vmixStatus" class="flex items-center gap-1.5 px-2.5 py-1 rounded-full glass-soft">
         <span class="w-1.5 h-1.5 rounded-full bg-slate-500" id="vmixDot"></span>
         <span id="vmixLabel">vMix: checking…</span>
       </div>
-      <button id="settingsBtn" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 transition">⚙ Settings</button>
+      <button id="settingsBtn" class="px-3 py-1 rounded-full glass-soft hover:bg-slate-700/60 transition">⚙ Settings</button>
     </div>
   </header>
 
@@ -67,13 +88,13 @@
   <main class="flex-1 min-h-0 grid grid-cols-12 gap-3 p-3 overflow-hidden">
 
     <!-- LEFT: STT LOG STREAM -->
-    <section class="col-span-3 min-h-0 flex flex-col bg-panel rounded-lg border border-slate-800 overflow-hidden">
-      <div class="px-3 py-2 border-b border-slate-800 flex items-center justify-between shrink-0">
-        <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-400">STT Log Stream</h2>
+    <section class="col-span-3 min-h-0 flex flex-col bg-slate-900/60 backdrop-blur-md border border-slate-800/80 rounded-2xl shadow-2xl shadow-indigo-950/20 overflow-hidden">
+      <div class="px-3 py-2.5 border-b border-slate-800/60 flex items-center justify-between shrink-0">
+        <h2 class="text-xs font-semibold tracking-wider text-slate-400 uppercase">STT Log Stream</h2>
         <div class="flex items-center gap-2">
-          <button id="exportTxtBtn" class="text-[11px] text-slate-500 hover:text-slate-300" title="Export all captions as .txt">⬇ TXT</button>
-          <button id="exportSrtBtn" class="text-[11px] text-slate-500 hover:text-slate-300" title="Export all captions as .srt subtitles">⬇ SRT</button>
-          <button id="clearLogBtn" class="text-[11px] text-slate-500 hover:text-slate-300">Clear</button>
+          <button id="exportTxtBtn" class="text-[11px] text-slate-500 hover:text-slate-200 transition" title="Export all captions as .txt">⬇ TXT</button>
+          <button id="exportSrtBtn" class="text-[11px] text-slate-500 hover:text-slate-200 transition" title="Export all captions as .srt subtitles">⬇ SRT</button>
+          <button id="clearLogBtn" class="text-[11px] text-slate-500 hover:text-slate-200 transition">Clear</button>
         </div>
       </div>
       <div id="logStream" class="flex-1 min-h-0 overflow-y-auto px-2 py-2 space-y-1.5 text-xs"></div>
@@ -83,10 +104,10 @@
     <section class="col-span-6 min-h-0 flex flex-col gap-3 overflow-hidden">
 
       <!-- Audio + STT controls -->
-      <div class="bg-panel rounded-lg border border-slate-800 p-3 shrink-0">
+      <div class="bg-slate-900/60 backdrop-blur-md border border-slate-800/80 rounded-2xl shadow-2xl shadow-indigo-950/20 p-3 shrink-0">
         <div class="flex items-center gap-3 flex-wrap">
-          <select id="audioDeviceSelect" class="bg-slate-800 text-xs rounded px-2 py-1.5 border border-slate-700 flex-1 min-w-[160px]"></select>
-          <select id="sourceLangSelect" class="bg-slate-800 text-xs rounded px-2 py-1.5 border border-slate-700" title="Source language for the browser's Web Speech API">
+          <select id="audioDeviceSelect" class="bg-slate-800/70 text-xs rounded-lg px-2 py-1.5 border border-slate-700/60 flex-1 min-w-[160px]" title="Audio input device — pick a VB-Audio Virtual Cable output to caption vMix's own program audio instead of a mic"></select>
+          <select id="sourceLangSelect" class="bg-slate-800/70 text-xs rounded-lg px-2 py-1.5 border border-slate-700/60" title="Source language for the browser's Web Speech API">
             <option value="km-KH">🇰🇭 Khmer (km-KH)</option>
             <option value="en-US" selected>🇬🇧 English (en-US)</option>
             <option value="zh-CN">🇨🇳 Chinese (zh-CN)</option>
@@ -95,102 +116,93 @@
             <option value="ru-RU">🇷🇺 Russian (ru-RU)</option>
             <option value="es-ES">🇪🇸 Spanish (es-ES)</option>
           </select>
-          <button id="micToggleBtn" class="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-xs font-medium transition">▶ Start Listening</button>
+          <button id="micToggleBtn" class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold transition shadow-lg shadow-emerald-950/40">▶ Start Listening</button>
           <div class="flex items-center gap-2 flex-1 min-w-[120px]">
-            <span class="text-[10px] text-slate-500 shrink-0">LEVEL</span>
-            <div class="w-full h-2.5 bg-slate-800 rounded overflow-hidden">
+            <span class="text-[10px] text-slate-500 shrink-0 font-medium">LEVEL</span>
+            <div class="w-full h-2.5 bg-slate-800/70 rounded-full overflow-hidden">
               <div id="levelMeter" class="h-full bg-gradient-to-r from-emerald-500 via-yellow-400 to-red-500 origin-left" style="transform: scaleX(0); width:100%;"></div>
             </div>
           </div>
         </div>
 
-        <div class="mt-2 flex items-center gap-3 flex-wrap">
-          <button id="sttModeBtn" type="button" class="px-2.5 py-1 rounded text-xs border border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-300 transition">🌐 Google Cloud Auto Multi-Language</button>
-          <label class="flex items-center gap-1.5 text-xs text-slate-400">
+        <div class="mt-2.5 flex items-center gap-3 flex-wrap">
+          <button id="sttModeBtn" type="button" class="px-2.5 py-1 rounded-full text-xs border border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-slate-300 transition" title="Switch from the browser's Web Speech API to server-side Google Cloud streaming recognition, which can auto-detect mixed languages (e.g. Khmer + English) in one stream">🌐 Google Cloud Auto Multi-Language</button>
+          <label class="flex items-center gap-1.5 text-xs text-slate-400" title="Push the original text to vMix continuously as you speak, word-by-word — independent of the ~1s wait for a complete sentence used for translation">
             <input type="checkbox" id="liveOverlay1Toggle" checked class="accent-accent" />
-            ⚡ Live Overlay 1 (push original as you speak)
+            ⚡ Live Overlay 1
           </label>
-          <label class="flex items-center gap-1.5 text-xs text-slate-400" title="Prevents Google's multi-language auto-detection from drifting to another language on long streams">
+          <label class="flex items-center gap-1.5 text-xs text-slate-400" title="Restrict recognition to only the Source Speech Language above — turn off only if you need genuine code-switching (e.g. Khmer mixed with English) in one session">
             <input type="checkbox" id="lockLanguageToggle" checked class="accent-accent" />
-            🔒 Lock to Source Language (no auto-switch)
+            🔒 Lock to Source Language
           </label>
         </div>
-        <p class="text-[10px] text-slate-500 mt-1">
-          Google Cloud mode switches from the browser's Web Speech API to server-side streaming
-          recognition, which can auto-detect mixed languages (e.g. Khmer + English) in one stream.
-          Overlay 1 always updates automatically once each sentence completes (~1s after you pause) —
-          "Live Overlay 1" additionally pushes it continuously word-by-word while you're still
-          speaking. Overlay 2 always waits for the complete sentence, since translating a
-          half-formed phrase isn't meaningful. "Lock to Source Language" restricts recognition to
-          only the Source Speech Language selected above — turn it off if you genuinely need
-          code-switching (e.g. Khmer mixed with English) within the same session; automatic
-          language detection can otherwise drift to the wrong language and get stuck there on
-          long streams.
-        </p>
 
-        <p class="text-[10px] text-slate-500 mt-2">
-          🎚️ To caption vMix's own program audio (not just a mic), route vMix's audio output
-          (Settings → Audio, or an Input's Bus A/B) to <span class="text-slate-300">VB-Audio Virtual Cable</span>,
-          then select <span class="text-slate-300">"CABLE Output (VB-Audio Virtual Cable)"</span> above.
+        <p class="text-[10px] text-slate-500 mt-2" title="Route vMix's audio output (Settings → Audio, or an Input's Bus A/B) to VB-Audio Virtual Cable, then select its output above">
+          🎚️ Caption vMix's own program audio via <span class="text-slate-300">VB-Audio Virtual Cable</span> — hover for setup.
         </p>
       </div>
 
       <!-- Active Edit Zone -->
-      <div class="bg-panel rounded-lg border border-slate-800 p-3 flex-1 min-h-0 flex flex-col overflow-hidden">
-        <div class="flex items-center justify-between mb-2 shrink-0">
-          <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-400">Active Edit Zone</h2>
+      <div class="bg-slate-900/60 backdrop-blur-md border border-slate-800/80 rounded-2xl shadow-2xl shadow-indigo-950/20 p-4 flex-1 min-h-0 flex flex-col overflow-hidden">
+        <div class="flex items-center justify-between mb-3 shrink-0">
+          <h2 class="text-xs font-semibold tracking-wider text-slate-400 uppercase">Active Edit Zone</h2>
           <div class="flex items-center gap-2">
-            <span id="confidenceBadge" class="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-400">— %</span>
-            <div class="relative w-8 h-8">
-              <svg viewBox="0 0 36 36" class="w-8 h-8 -rotate-90">
+            <span id="confidenceBadge" class="text-[11px] px-2.5 py-1 rounded-full bg-slate-800/80 text-slate-400 font-medium">— %</span>
+            <div class="relative w-9 h-9">
+              <svg viewBox="0 0 36 36" class="w-9 h-9 -rotate-90">
                 <circle cx="18" cy="18" r="15.9" fill="none" stroke="#1e293b" stroke-width="3"></circle>
                 <circle id="countdownRing" class="countdown-ring" cx="18" cy="18" r="15.9" fill="none" stroke="#22d3ee" stroke-width="3" stroke-dasharray="100 100" stroke-dashoffset="0"></circle>
               </svg>
-              <span id="countdownNum" class="absolute inset-0 flex items-center justify-center text-[10px] font-semibold"></span>
+              <span id="countdownNum" class="absolute inset-0 flex items-center justify-center text-[11px] font-bold"></span>
             </div>
           </div>
         </div>
 
-        <div class="flex-1 min-h-0 flex flex-col gap-2">
+        <div class="flex-1 min-h-0 flex flex-col gap-3">
           <div class="flex-1 min-h-0 flex flex-col">
-            <label class="text-[10px] text-slate-500 mb-1 shrink-0">Original Speech → Overlay 1</label>
-            <textarea id="activeOriginalInput" class="flex-1 min-h-[64px] w-full bg-slate-800/60 rounded p-2 text-sm resize-none border border-slate-700 focus:outline-none focus:border-accent overflow-y-auto" placeholder="Recognized speech will appear here…"></textarea>
+            <label class="text-[10px] font-semibold tracking-wider text-slate-500 uppercase mb-1.5 shrink-0">Original Speech → Overlay 1</label>
+            <textarea id="activeOriginalInput" class="flex-1 min-h-[72px] w-full bg-slate-900/70 rounded-lg p-3 text-base leading-relaxed resize-none border border-slate-700/70 focus:outline-none focus:border-cyan-400/70 focus:ring-1 focus:ring-cyan-400/30 overflow-y-auto text-slate-50 placeholder:text-slate-600 transition-colors" placeholder="Recognized speech will appear here…"></textarea>
           </div>
 
-          <div class="flex-1 min-h-0 flex flex-col">
-            <label class="text-[10px] text-slate-500 mb-1 shrink-0 flex items-center justify-between">
-              <span>Translated Text → Overlay 2</span>
-            </label>
-            <!-- Target Translation Language — placed directly above the translated box it controls -->
-            <div id="targetLangGroup" class="flex flex-wrap gap-1.5 mb-1.5">
-              <button type="button" data-lang="km" class="lang-btn px-2.5 py-1 rounded text-xs border border-slate-700 bg-accent text-slate-900 font-medium">🇰🇭 ខ្មែរ</button>
-              <button type="button" data-lang="en" class="lang-btn px-2.5 py-1 rounded text-xs border border-slate-700 bg-slate-800 hover:bg-slate-700">🇬🇧 English</button>
-              <button type="button" data-lang="zh" class="lang-btn px-2.5 py-1 rounded text-xs border border-slate-700 bg-slate-800 hover:bg-slate-700">🇨🇳 中文</button>
-              <button type="button" data-lang="fr" class="lang-btn px-2.5 py-1 rounded text-xs border border-slate-700 bg-slate-800 hover:bg-slate-700">🇫🇷 Français</button>
-              <button type="button" data-lang="ar" class="lang-btn px-2.5 py-1 rounded text-xs border border-slate-700 bg-slate-800 hover:bg-slate-700">🇸🇦 العربية</button>
-              <button type="button" data-lang="ru" class="lang-btn px-2.5 py-1 rounded text-xs border border-slate-700 bg-slate-800 hover:bg-slate-700">🇷🇺 Русский</button>
-              <button type="button" data-lang="es" class="lang-btn px-2.5 py-1 rounded text-xs border border-slate-700 bg-slate-800 hover:bg-slate-700">🇪🇸 Español</button>
+          <!-- Target Translation Language — always visible regardless of "None" selection, so the operator can always switch back -->
+          <div class="shrink-0">
+            <label class="text-xs font-semibold tracking-wider text-slate-400 uppercase mb-1.5 block">Target Translation Language</label>
+            <div id="targetLangGroup" class="flex flex-wrap gap-1.5">
+              <button type="button" data-lang="km" class="lang-btn px-3 py-1 rounded-full text-xs border border-accent bg-accent text-slate-900 font-medium">🇰🇭 ខ្មែរ</button>
+              <button type="button" data-lang="en" class="lang-btn px-3 py-1 rounded-full text-xs border border-slate-700 bg-slate-800 hover:bg-slate-700">🇬🇧 English</button>
+              <button type="button" data-lang="zh" class="lang-btn px-3 py-1 rounded-full text-xs border border-slate-700 bg-slate-800 hover:bg-slate-700">🇨🇳 中文</button>
+              <button type="button" data-lang="fr" class="lang-btn px-3 py-1 rounded-full text-xs border border-slate-700 bg-slate-800 hover:bg-slate-700">🇫🇷 Français</button>
+              <button type="button" data-lang="ar" class="lang-btn px-3 py-1 rounded-full text-xs border border-slate-700 bg-slate-800 hover:bg-slate-700">🇸🇦 العربية</button>
+              <button type="button" data-lang="ru" class="lang-btn px-3 py-1 rounded-full text-xs border border-slate-700 bg-slate-800 hover:bg-slate-700">🇷🇺 Русский</button>
+              <button type="button" data-lang="es" class="lang-btn px-3 py-1 rounded-full text-xs border border-slate-700 bg-slate-800 hover:bg-slate-700">🇪🇸 Español</button>
+              <button type="button" data-lang="none" class="lang-btn px-3 py-1 rounded-full text-xs border border-slate-700 bg-slate-800 hover:bg-slate-700" title="Disable translation entirely — Original Speech / Overlay 1 keeps working normally">🚫 None</button>
             </div>
-            <!-- Hidden select kept in sync with the buttons above — app.js reads/writes this as the single source of truth for the current target language -->
-            <select id="targetLangSelect" class="hidden">
-              <option value="km">Khmer</option>
-              <option value="en">English</option>
-              <option value="zh">Chinese</option>
-              <option value="fr">French</option>
-              <option value="ar">Arabic</option>
-              <option value="ru">Russian</option>
-              <option value="es">Spanish</option>
-            </select>
-            <textarea id="activeTranslatedInput" class="khmer flex-1 min-h-[64px] w-full bg-slate-800/60 rounded p-2 text-base resize-none border border-slate-700 focus:outline-none focus:border-accent overflow-y-auto" placeholder="Translation will appear here — edit before sending…"></textarea>
+          </div>
+          <!-- Hidden select kept in sync with the buttons above — app.js reads/writes this as the single source of truth for the current target language -->
+          <select id="targetLangSelect" class="hidden">
+            <option value="km">Khmer</option>
+            <option value="en">English</option>
+            <option value="zh">Chinese</option>
+            <option value="fr">French</option>
+            <option value="ar">Arabic</option>
+            <option value="ru">Russian</option>
+            <option value="es">Spanish</option>
+            <option value="none">None</option>
+          </select>
+
+          <!-- Hidden entirely (not the language picker above) when "None" is selected — Original Speech is never affected -->
+          <div id="translatedBlock" class="flex-1 min-h-0 flex flex-col">
+            <label class="text-[10px] font-semibold tracking-wider text-slate-500 uppercase mb-1.5 shrink-0">Translated Text → Overlay 2</label>
+            <textarea id="activeTranslatedInput" class="khmer flex-1 min-h-[72px] w-full bg-slate-900/70 rounded-lg p-3 text-base leading-relaxed resize-none border border-slate-700/70 focus:outline-none focus:border-cyan-400/70 focus:ring-1 focus:ring-cyan-400/30 overflow-y-auto text-slate-50 placeholder:text-slate-600 transition-colors" placeholder="Translation will appear here — edit before sending…"></textarea>
           </div>
         </div>
 
         <div class="flex items-center gap-2 mt-3 shrink-0 flex-wrap">
-          <button id="sendOverlay1Btn" class="px-3 py-2 rounded bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-semibold text-xs transition">① Send Overlay 1</button>
-          <button id="sendOverlay2Btn" class="px-3 py-2 rounded bg-sky-600 hover:bg-sky-500 text-slate-950 font-semibold text-xs transition">② Send Overlay 2</button>
-          <button id="sendBothBtn" class="px-3 py-2 rounded bg-accent text-slate-900 font-semibold text-xs hover:bg-cyan-300 transition">⏎ Send Both</button>
-          <button id="clearZoneBtn" class="px-3 py-2 rounded bg-slate-800 hover:bg-slate-700 text-xs transition">✕ Clear</button>
-          <button id="cancelAutoBtn" class="px-3 py-2 rounded bg-slate-800 hover:bg-slate-700 text-xs transition" disabled>⏸ Cancel Auto</button>
+          <button id="sendOverlay1Btn" class="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-semibold text-xs transition-all hover:shadow-[0_0_15px_rgba(16,185,129,0.6)]">① Send Overlay 1</button>
+          <button id="sendOverlay2Btn" class="px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-slate-950 font-semibold text-xs transition-all hover:shadow-[0_0_15px_rgba(56,189,248,0.6)]">② Send Overlay 2</button>
+          <button id="sendBothBtn" class="px-3 py-2 rounded-lg bg-accent text-slate-900 font-semibold text-xs hover:bg-cyan-300 transition-all hover:shadow-[0_0_15px_rgba(34,211,238,0.6)]">⏎ Send Both</button>
+          <button id="clearZoneBtn" class="px-3 py-2 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-xs transition">✕ Clear</button>
+          <button id="cancelAutoBtn" class="px-3 py-2 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-xs transition" disabled>⏸ Cancel Auto</button>
           <label class="flex items-center gap-1.5 text-xs text-slate-400 ml-auto">
             <input type="checkbox" id="autoSendToggle" checked class="accent-accent" />
             Auto-send Both (<span id="autoSendDelayLabel">3</span>s)
@@ -199,72 +211,69 @@
       </div>
 
       <!-- Quick Phrases -->
-      <div class="bg-panel rounded-lg border border-slate-800 p-3 shrink-0">
-        <h2 class="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-2">Quick Phrases</h2>
+      <div class="bg-slate-900/60 backdrop-blur-md border border-slate-800/80 rounded-2xl shadow-2xl shadow-indigo-950/20 p-3 shrink-0">
+        <h2 class="text-xs font-semibold tracking-wider text-slate-400 uppercase mb-2">Quick Phrases</h2>
         <div id="quickPhrases" class="flex flex-wrap gap-2"></div>
       </div>
     </section>
 
     <!-- RIGHT: ON AIR + vMix config -->
     <section class="col-span-3 min-h-0 flex flex-col gap-3 overflow-hidden">
-      <div class="bg-panel rounded-lg border border-slate-800 p-3 shrink-0 max-h-[45%] overflow-y-auto">
+      <div class="bg-slate-900/60 backdrop-blur-md border border-slate-800/80 rounded-2xl shadow-2xl shadow-indigo-950/20 p-3.5 shrink-0 max-h-[48%] overflow-y-auto">
         <div class="flex items-center gap-2 mb-2">
-          <span id="onAirDot1" class="w-2 h-2 rounded-full bg-slate-700"></span>
-          <h2 class="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Overlay 1 — Original</h2>
+          <span id="onAirDot1" class="w-2.5 h-2.5 rounded-full bg-slate-700"></span>
+          <h2 class="text-[10px] font-semibold tracking-wider text-slate-500 uppercase">Overlay 1 — Original</h2>
         </div>
-        <div id="onAirText1" class="text-sm leading-snug min-h-[3rem] max-h-28 overflow-y-auto bg-black rounded p-2 border border-slate-800 text-slate-100 whitespace-pre-wrap break-words">—</div>
-        <div class="text-[10px] text-slate-500 mt-1" id="onAirTimestamp1">Not sent yet</div>
+        <!-- Fixed height, never grows the card — long text scrolls internally instead -->
+        <div id="onAirText1" class="onair-box h-28 text-lg font-medium leading-snug overflow-y-auto rounded-lg p-3 text-white whitespace-pre-wrap break-words">—</div>
+        <div class="text-[10px] text-slate-500 mt-1.5" id="onAirTimestamp1">Not sent yet</div>
 
-        <div class="flex items-center gap-2 mb-2 mt-3">
-          <span id="onAirDot2" class="w-2 h-2 rounded-full bg-slate-700"></span>
-          <h2 class="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Overlay 2 — Translated</h2>
-        </div>
-        <div id="onAirText2" class="khmer text-sm leading-snug min-h-[3rem] max-h-28 overflow-y-auto bg-black rounded p-2 border border-slate-800 text-slate-100 whitespace-pre-wrap break-words">—</div>
-        <div class="flex items-center justify-between mt-1 text-[10px] text-slate-500">
-          <span id="onAirTimestamp2">Not sent yet</span>
-          <button id="forceClearBtn" class="text-red-400 hover:text-red-300">Clear both on vMix</button>
+        <div id="onAirOverlay2Card">
+          <div class="flex items-center gap-2 mb-2 mt-3.5">
+            <span id="onAirDot2" class="w-2.5 h-2.5 rounded-full bg-slate-700"></span>
+            <h2 class="text-[10px] font-semibold tracking-wider text-slate-500 uppercase">Overlay 2 — Translated</h2>
+          </div>
+          <div id="onAirText2" class="khmer onair-box h-28 text-lg font-medium leading-snug overflow-y-auto rounded-lg p-3 text-white whitespace-pre-wrap break-words">—</div>
+          <div class="flex items-center justify-between mt-1.5 text-[10px] text-slate-500">
+            <span id="onAirTimestamp2">Not sent yet</span>
+          </div>
         </div>
       </div>
 
-      <div class="bg-panel rounded-lg border border-slate-800 p-3 flex-1 min-h-0 overflow-y-auto">
-        <h2 class="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-2">vMix Overlay Channel Triggers</h2>
-        <div class="grid grid-cols-2 gap-2 mb-3">
-          <button data-fn="OverlayInput1In" data-target="overlay1" class="overlay-btn px-2 py-1.5 rounded bg-emerald-700/40 hover:bg-emerald-700/70 text-xs">Overlay 1 In</button>
-          <button data-fn="OverlayInput1Out" data-target="overlay1" class="overlay-btn px-2 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-xs">Overlay 1 Out</button>
-          <button data-fn="OverlayInput2In" data-target="overlay2" class="overlay-btn px-2 py-1.5 rounded bg-emerald-700/40 hover:bg-emerald-700/70 text-xs">Overlay 2 In</button>
-          <button data-fn="OverlayInput2Out" data-target="overlay2" class="overlay-btn px-2 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-xs">Overlay 2 Out</button>
-        </div>
-        <p class="text-[10px] text-slate-500 mb-3">
-          "In"/"Out" send the Input configured below for that overlay — Overlay 1's button always
-          targets the Overlay 1 Target Input, Overlay 2's always targets the Overlay 2 Target Input.
-        </p>
+      <!-- Pinned in its own row (not inside the scrollable card above), so it
+           stays visible regardless of how long the ON-AIR text grows -->
+      <div class="shrink-0 flex justify-end">
+        <button id="forceClearBtn" class="px-3 py-1.5 rounded-lg border border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/20 text-xs font-semibold transition-colors">Clear both on vMix</button>
+      </div>
 
-        <h2 class="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-2 mt-4">Overlay 1 Target (Original)</h2>
+      <div class="bg-slate-900/60 backdrop-blur-md border border-slate-800/80 rounded-2xl shadow-2xl shadow-indigo-950/20 p-3.5 flex-1 min-h-0 overflow-y-auto">
+        <h2 class="text-xs font-semibold tracking-wider text-slate-400 uppercase mb-2">vMix Overlay Channel Triggers</h2>
+        <div class="grid grid-cols-2 gap-2 mb-2" title="Sends the Input configured below for that overlay — Overlay 1's button always targets the Overlay 1 Target Input, Overlay 2's always targets the Overlay 2 Target Input">
+          <button data-fn="OverlayInput1In" data-target="overlay1" class="overlay-btn px-2 py-1.5 rounded-lg bg-emerald-700/40 hover:bg-emerald-700/70 text-xs transition">Overlay 1 In</button>
+          <button data-fn="OverlayInput1Out" data-target="overlay1" class="overlay-btn px-2 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-xs transition">Overlay 1 Out</button>
+          <button data-fn="OverlayInput2In" data-target="overlay2" class="overlay-btn px-2 py-1.5 rounded-lg bg-emerald-700/40 hover:bg-emerald-700/70 text-xs transition">Overlay 2 In</button>
+          <button data-fn="OverlayInput2Out" data-target="overlay2" class="overlay-btn px-2 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-xs transition">Overlay 2 Out</button>
+        </div>
+
+        <h2 class="text-xs font-semibold tracking-wider text-slate-400 uppercase mb-2 mt-4">Overlay 1 Target (Original)</h2>
         <label class="text-[10px] text-slate-500">Input (name or number)</label>
-        <input id="overlay1Input" type="text" class="w-full bg-slate-800 rounded px-2 py-1.5 text-xs mb-2 border border-slate-700" />
+        <input id="overlay1Input" type="text" class="w-full bg-slate-800/70 rounded-lg px-2 py-1.5 text-xs mb-2 border border-slate-700/60" />
         <label class="text-[10px] text-slate-500">Title Field (SelectedName)</label>
         <div class="flex gap-1.5 mb-2">
-          <input id="overlay1SelectedName" type="text" class="flex-1 bg-slate-800 rounded px-2 py-1.5 text-xs border border-slate-700" />
-          <button id="testOverlay1Btn" type="button" class="px-2 py-1.5 rounded bg-slate-700 hover:bg-slate-600 text-[10px] shrink-0" title="Send a fixed test string directly to this Input/SelectedName, bypassing STT/translation — confirms whether the names above actually match something in vMix">Test</button>
+          <input id="overlay1SelectedName" type="text" class="flex-1 bg-slate-800/70 rounded-lg px-2 py-1.5 text-xs border border-slate-700/60" />
+          <button id="testOverlay1Btn" type="button" class="px-2 py-1.5 rounded-lg bg-slate-700/80 hover:bg-slate-600 text-[10px] shrink-0 transition" title="Send a fixed test string directly, bypassing STT/translation — if it doesn't appear in vMix, the Input/Title Field names don't match anything real">Test</button>
         </div>
 
-        <h2 class="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-2 mt-4">Overlay 2 Target (Translated)</h2>
+        <h2 class="text-xs font-semibold tracking-wider text-slate-400 uppercase mb-2 mt-4">Overlay 2 Target (Translated)</h2>
         <label class="text-[10px] text-slate-500">Input (name or number)</label>
-        <input id="overlay2Input" type="text" class="w-full bg-slate-800 rounded px-2 py-1.5 text-xs mb-2 border border-slate-700" />
+        <input id="overlay2Input" type="text" class="w-full bg-slate-800/70 rounded-lg px-2 py-1.5 text-xs mb-2 border border-slate-700/60" />
         <label class="text-[10px] text-slate-500">Title Field (SelectedName)</label>
         <div class="flex gap-1.5 mb-2">
-          <input id="overlay2SelectedName" type="text" class="flex-1 bg-slate-800 rounded px-2 py-1.5 text-xs border border-slate-700" />
-          <button id="testOverlay2Btn" type="button" class="px-2 py-1.5 rounded bg-slate-700 hover:bg-slate-600 text-[10px] shrink-0" title="Send a fixed test string directly to this Input/SelectedName, bypassing STT/translation — confirms whether the names above actually match something in vMix">Test</button>
+          <input id="overlay2SelectedName" type="text" class="flex-1 bg-slate-800/70 rounded-lg px-2 py-1.5 text-xs border border-slate-700/60" />
+          <button id="testOverlay2Btn" type="button" class="px-2 py-1.5 rounded-lg bg-slate-700/80 hover:bg-slate-600 text-[10px] shrink-0 transition" title="Send a fixed test string directly, bypassing STT/translation — if it doesn't appear in vMix, the Input/Title Field names don't match anything real">Test</button>
         </div>
-        <p class="text-[10px] text-slate-500 -mt-1 mb-2">
-          "Test" sends a fixed string straight to vMix, skipping STT/translation entirely — if it
-          doesn't appear on the actual vMix output/preview for that Input, the Input name or
-          Title Field name above doesn't match something real in your vMix production (vMix's API
-          returns success even when the name doesn't match anything, so this is the only reliable
-          way to confirm the mapping).
-        </p>
 
-        <h2 class="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-2 mt-4">Quality Control</h2>
+        <h2 class="text-xs font-semibold tracking-wider text-slate-400 uppercase mb-2 mt-4">Quality Control</h2>
         <label class="text-[10px] text-slate-500">Min. Confidence (%)</label>
         <input id="minConfidenceInput" type="range" min="0" max="100" value="60" class="w-full accent-accent mb-1" />
         <div class="flex justify-between text-[10px] text-slate-500 mb-2"><span>0</span><span id="minConfidenceValue">60</span><span>100</span></div>
@@ -278,21 +287,21 @@
 
   <!-- SETTINGS MODAL -->
   <div id="settingsModal" class="hidden fixed inset-0 bg-black/70 items-center justify-center z-50">
-    <div class="bg-panel2 border border-slate-700 rounded-lg p-5 w-[420px] max-w-[90vw]">
+    <div class="bg-slate-900/60 backdrop-blur-md border border-slate-800/80 rounded-2xl shadow-2xl shadow-indigo-950/20 p-5 w-[420px] max-w-[90vw]">
       <div class="flex items-center justify-between mb-4">
-        <h2 class="font-semibold text-sm">Settings</h2>
+        <h2 class="font-bold text-sm">Settings</h2>
         <button id="closeSettingsBtn" class="text-slate-400 hover:text-slate-200">✕</button>
       </div>
       <label class="text-[10px] text-slate-500">Backend WebSocket URL</label>
-      <input id="wsUrlInput" type="text" class="w-full bg-slate-800 rounded px-2 py-1.5 text-xs mb-3 border border-slate-700" />
+      <input id="wsUrlInput" type="text" class="w-full bg-slate-800/70 rounded-lg px-2 py-1.5 text-xs mb-3 border border-slate-700/60" />
       <label class="text-[10px] text-slate-500">Auto-Send Delay (seconds)</label>
-      <input id="autoSendDelayInput" type="number" min="1" max="30" value="3" class="w-full bg-slate-800 rounded px-2 py-1.5 text-xs mb-3 border border-slate-700" />
+      <input id="autoSendDelayInput" type="number" min="1" max="30" value="3" class="w-full bg-slate-800/70 rounded-lg px-2 py-1.5 text-xs mb-3 border border-slate-700/60" />
       <label class="text-[10px] text-slate-500">Add Quick Phrase (label|text)</label>
       <div class="flex gap-2 mb-3">
-        <input id="newPhraseInput" type="text" placeholder="Break|10 min break, back soon" class="flex-1 bg-slate-800 rounded px-2 py-1.5 text-xs border border-slate-700" />
-        <button id="addPhraseBtn" class="px-2 py-1.5 rounded bg-accent text-slate-900 text-xs font-medium">Add</button>
+        <input id="newPhraseInput" type="text" placeholder="Break|10 min break, back soon" class="flex-1 bg-slate-800/70 rounded-lg px-2 py-1.5 text-xs border border-slate-700/60" />
+        <button id="addPhraseBtn" class="px-2 py-1.5 rounded-lg bg-accent text-slate-900 text-xs font-medium">Add</button>
       </div>
-      <button id="saveSettingsBtn" class="w-full px-3 py-2 rounded bg-accent text-slate-900 font-semibold text-sm hover:bg-cyan-300 transition">Save &amp; Close</button>
+      <button id="saveSettingsBtn" class="w-full px-3 py-2 rounded-lg bg-accent text-slate-900 font-semibold text-sm hover:bg-cyan-300 transition">Save &amp; Close</button>
     </div>
   </div>
 
