@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>vMix Live Caption &amp; QC Console</title>
+<title>CaptionSync Pro</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
   tailwind.config = {
@@ -66,10 +66,9 @@
 <body class="text-slate-200 font-sans h-screen overflow-hidden flex flex-col">
 
   <!-- TOP BAR -->
-  <header class="flex items-center justify-between px-5 py-2.5 bg-slate-900/60 backdrop-blur-md border-b border-slate-800/80 shrink-0">
+  <header class="flex items-center justify-between px-5 py-0.5 bg-slate-900/60 backdrop-blur-md border-b border-slate-800/80 shrink-0">
     <div class="flex items-center gap-3">
-      <div class="w-2.5 h-2.5 rounded-full bg-accent shadow-[0_0_10px_rgba(34,211,238,0.8)]"></div>
-      <h1 class="font-bold text-sm tracking-wide text-slate-100">vMix Live Caption &amp; QC Console</h1>
+      <img src="assets/logo.png" alt="CaptionSync Pro" class="h-14 w-auto object-contain shrink-0" />
     </div>
     <div class="flex items-center gap-3 text-xs">
       <div id="wsStatus" class="flex items-center gap-1.5 px-2.5 py-1 rounded-full glass-soft">
@@ -284,6 +283,11 @@
       </div>
     </section>
   </main>
+
+  <!-- FOOTER -->
+  <footer class="khmer shrink-0 text-[12px] text-slate-600 text-center py-1.5 border-t border-slate-800/50 tracking-wide">
+    © 2026 All rights reserved by នាយកដ្ឋានបច្ចេកវិទ្យាព័ត៌មាន គមនាគមន៍ និងបរិវត្តកម្មឌីជីថល
+  </footer>
 
   <!-- SETTINGS MODAL -->
   <div id="settingsModal" class="hidden fixed inset-0 bg-black/70 items-center justify-center z-50">

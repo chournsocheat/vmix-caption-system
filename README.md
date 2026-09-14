@@ -1,4 +1,4 @@
-# vMix Live Caption, Translation & QC System
+# CaptionSync Pro
 
 Real-time speech-to-text → translation → human-reviewed → vMix Title overlay pipeline.
 
